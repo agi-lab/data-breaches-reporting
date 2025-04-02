@@ -1,0 +1,1362 @@
+---
+title: "Construct matrices containing upper triangles (actual data) and lower triangles (filled with zeros)"
+output:
+  html_document:
+    toc: yes
+    toc_depth: '4'
+    df_print: paged
+    number_sections: yes
+  bookdown::pdf_document2:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 4
+    number_sections: yes
+    fig_caption: yes
+fontsize: 12pt
+always_allow_html: yes
+---
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+# load packages
+library(readr);library(astsa);library(knitr);library(ggplot2);library(TTR);library(SynthETIC);library(data.table);library(ModelMetrics);library(plotly);library(lubridate);library(stringi);library(FluMoDL);library(ChainLadder);library(MASS);library(AER);library(writexl);library(readxl);library(bbmle);library(MuMIn);library(boot);library(pheatmap);library(gplots);library(kableExtra);library(bookdown);library(ggpubr);library(xtable);library(stargazer);library(forcats);library(rgl);library(htmlwidgets);library("RColorBrewer")
+libs<- c ("tm", "plyr", "class", "SnowballC", "dplyr", "caret", "corrplot", "beepr","RWeka","e1071","ggplot2", "datasets", "maps","plotly", "wordcloud")
+lapply(libs, library, character.only=T)
+```
+
+# CA(>=500) 
+
+## Prepare the data for California (2012Q1 - 2021Q4)
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+
+all_data = read.csv("elig_breaches.csv")
+
+# Quarterly frequencies - first date of breach
+
+cadata=all_data[which(all_data$state == "CA"),]
+
+cadata$year_month_of_breach <- strftime(cadata$Date.of.Breach, "%Y/%m")
+cadata$year_month_of_reported <- strftime(cadata$Reported.Date, "%Y/%m")
+
+cadata$quarter_DoB=0
+cadata$quarter_RD=0
+
+# quarter number for DoB and RD
+hi=sort(c(unique(cadata$year_month_of_breach),"2021/12"))
+for (i in 1:(length(hi)/3)) {
+cadata$quarter_DoB[which(cadata$year_month_of_breach==hi[(i-1)*3+1])]=i
+cadata$quarter_DoB[which(cadata$year_month_of_breach==hi[(i-1)*3+2])]=i
+cadata$quarter_DoB[which(cadata$year_month_of_breach==hi[(i-1)*3+3])]=i
+cadata$quarter_RD[which(cadata$year_month_of_reported==hi[(i-1)*3+1])]=i
+cadata$quarter_RD[which(cadata$year_month_of_reported==hi[(i-1)*3+2])]=i
+cadata$quarter_RD[which(cadata$year_month_of_reported==hi[(i-1)*3+3])]=i
+}
+
+# development quarter
+cadata$Development.quarter=cadata$quarter_RD-cadata$quarter_DoB
+
+I=length(hi)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=cadata[which(cadata$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(40,40))
+for (i in 1:40) {
+  for (j in 1:40) {
+    if ((i+j)>(40+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi=1:40
+colnames(quarterly)<-c(hi,"Sum")
+rownames(quarterly)<-c(hi,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (California, 2012Q1-2021Q4)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+ 
+```{r}
+Xij=array(0,c(40,40))
+for (i in 1:40) {
+  for (j in 1:40) {
+    if ((i+j)>(40+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:40, 40))
+dev.period <- rep(1:40, 40)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_CA500=functional_form_data
+```
+
+# IN (>=500 state residents affected)
+
+## Prepare the data for Indiana (2014Q1 - 2021Q2)
+
+```{r}
+
+In=all_data[which(all_data$state == "IN"),]
+
+# Assign quarters
+
+In$year_month_of_breach <- strftime(In$Date.of.Breach, "%Y/%m")
+In$year_month_of_reported <- strftime(In$Reported.Date, "%Y/%m")
+
+In$quarter_DoB=0
+In$quarter_RD=0
+
+## quarter number for DoB and RD 
+hi=sort(unique(In$year_month_of_breach)) # all months have breaches
+bye=sort(hi)
+for (i in 1:(length(bye)/3)) {
+In$quarter_DoB[which(In$year_month_of_breach==bye[(i-1)*3+1])]=i
+In$quarter_DoB[which(In$year_month_of_breach==bye[(i-1)*3+2])]=i
+In$quarter_DoB[which(In$year_month_of_breach==bye[(i-1)*3+3])]=i
+In$quarter_RD[which(In$year_month_of_reported==bye[(i-1)*3+1])]=i
+In$quarter_RD[which(In$year_month_of_reported==bye[(i-1)*3+2])]=i
+In$quarter_RD[which(In$year_month_of_reported==bye[(i-1)*3+3])]=i
+}
+
+## development quarter
+In$Development.quarter=In$quarter_RD-In$quarter_DoB
+```
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+
+# Quarterly triangles for IN(>=500)
+
+IN500=In[-which(In$State.Residents.Affected<500),]
+
+I=length(bye)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=IN500[which(IN500$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi1=9:38
+hi2=1:30
+colnames(quarterly)<-c(hi2,"Sum")
+rownames(quarterly)<-c(hi1,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Indiana, 2014Q1 - 2021Q2)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+ 
+
+```{r}
+Xij=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:30, 30))
+origin.period <- origin.period+8
+dev.period <- rep(1:30, 30)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_IN500=functional_form_data
+```
+
+# IN (250-499 state residents affected)
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+IN250=In[which(In$State.Residents.Affected>=250 & In$State.Residents.Affected<500),]
+
+I=length(bye)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=IN250[which(IN250$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi1=9:38
+hi2=1:30
+colnames(quarterly)<-c(hi2,"Sum")
+rownames(quarterly)<-c(hi1,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Indiana, 2014Q1 - 2021Q2)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+ 
+
+```{r}
+Xij=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:30, 30))
+origin.period <- origin.period+8
+dev.period <- rep(1:30, 30)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_IN250=functional_form_data
+```
+
+#  IN (0-249 state residents affected)
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+IN1=In[-which(In$State.Residents.Affected>=250),]
+
+I=length(bye)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=IN1[which(IN1$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi1=9:38
+hi2=1:30
+colnames(quarterly)<-c(hi2,"Sum")
+rownames(quarterly)<-c(hi1,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Indiana, 2014Q1 - 2021Q2)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+ 
+
+```{r}
+Xij=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:30, 30))
+origin.period <- origin.period+8
+dev.period <- rep(1:30, 30)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_IN1=functional_form_data
+```
+
+#  MT (>=500 state residents affected)
+
+## Prepare the data for Montana (2015Q4 - 2021Q4)
+
+```{r}
+
+mt=all_data[which(all_data$state == "MT"),]
+
+# Assign quarters
+
+mt$year_month_of_breach <- strftime(mt$Date.of.Breach, "%Y/%m")
+mt$year_month_of_reported <- strftime(mt$Reported.Date, "%Y/%m")
+
+mt$quarter_DoB=0
+mt$quarter_RD=0
+
+# quarter number for DoB and RD 
+hi=sort(unique(mt$year_month_of_breach))
+bye=sort(c("2021/12",hi))
+for (i in 1:(length(bye)/3)) {
+mt$quarter_DoB[which(mt$year_month_of_breach==bye[(i-1)*3+1])]=i
+mt$quarter_DoB[which(mt$year_month_of_breach==bye[(i-1)*3+2])]=i
+mt$quarter_DoB[which(mt$year_month_of_breach==bye[(i-1)*3+3])]=i
+mt$quarter_RD[which(mt$year_month_of_reported==bye[(i-1)*3+1])]=i
+mt$quarter_RD[which(mt$year_month_of_reported==bye[(i-1)*3+2])]=i
+mt$quarter_RD[which(mt$year_month_of_reported==bye[(i-1)*3+3])]=i
+}
+
+# development quarter
+mt$Development.quarter=mt$quarter_RD-mt$quarter_DoB
+```
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+MT500=mt[-which(mt$State.Residents.Affected<500),]
+
+I=length(bye)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=MT500[which(MT500$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(25,25))
+for (i in 1:25) {
+  for (j in 1:25) {
+    if ((i+j)>(25+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+
+hi1=1:25
+hi2=16:40
+colnames(quarterly)<-c(hi1,"Sum")
+rownames(quarterly)<-c(hi2,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Montana, 2015Q4 - 2021Q4)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+ 
+```{r}
+Xij=array(0,c(25,25))
+for (i in 1:25) {
+  for (j in 1:25) {
+    if ((i+j)>(25+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:25, 25))
+origin.period <- origin.period+15
+dev.period <- rep(1:25, 25)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_MT500=functional_form_data
+```
+
+#  MT (250-499 state residents affected)
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+MT250=mt[which(mt$State.Residents.Affected>=250 & mt$State.Residents.Affected<500),]
+
+I=length(bye)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=MT250[which(MT250$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(25,25))
+for (i in 1:25) {
+  for (j in 1:25) {
+    if ((i+j)>(25+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+
+hi1=1:25
+hi2=16:40
+colnames(quarterly)<-c(hi1,"Sum")
+rownames(quarterly)<-c(hi2,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Montana, 2015Q4 - 2021Q4)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+ 
+```{r}
+Xij=array(0,c(25,25))
+for (i in 1:25) {
+  for (j in 1:25) {
+    if ((i+j)>(25+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:25, 25))
+origin.period <- origin.period+15
+dev.period <- rep(1:25, 25)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_MT250=functional_form_data
+```
+
+#  MT (0-249 state residents affected)
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+MT1=mt[-which(mt$State.Residents.Affected>=250),]
+
+I=length(bye)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=MT1[which(MT1$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(25,25))
+for (i in 1:25) {
+  for (j in 1:25) {
+    if ((i+j)>(25+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+
+hi1=1:25
+hi2=16:40
+colnames(quarterly)<-c(hi1,"Sum")
+rownames(quarterly)<-c(hi2,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Montana, 2015Q4 - 2021Q4)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+ 
+```{r}
+Xij=array(0,c(25,25))
+for (i in 1:25) {
+  for (j in 1:25) {
+    if ((i+j)>(25+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:25, 25))
+origin.period <- origin.period+15
+dev.period <- rep(1:25, 25)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_MT1=functional_form_data
+```
+
+#  ME (>=500 state residents affected)
+
+## Prepare the data for Maine (2013Q1 - 2020Q2)
+
+```{r}
+
+me=all_data[which(all_data$state == "ME"),]
+
+# Assign quarters
+
+me$year_month_of_breach <- strftime(me$Date.of.Breach, "%Y/%m")
+me$year_month_of_reported <- strftime(me$Reported.Date, "%Y/%m")
+
+me$quarter_DoB=0
+me$quarter_RD=0
+
+# quarter number for DoB and RD 
+hi=sort(unique(me$year_month_of_breach))
+bye=hi
+for (i in 1:(length(bye)/3)) {
+me$quarter_DoB[which(me$year_month_of_breach==bye[(i-1)*3+1])]=i
+me$quarter_DoB[which(me$year_month_of_breach==bye[(i-1)*3+2])]=i
+me$quarter_DoB[which(me$year_month_of_breach==bye[(i-1)*3+3])]=i
+me$quarter_RD[which(me$year_month_of_reported==bye[(i-1)*3+1])]=i
+me$quarter_RD[which(me$year_month_of_reported==bye[(i-1)*3+2])]=i
+me$quarter_RD[which(me$year_month_of_reported==bye[(i-1)*3+3])]=i
+}
+
+# development quarter
+me$Development.quarter=me$quarter_RD-me$quarter_DoB
+```
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+
+ME500=me[-which(me$State.Residents.Affected<500),]
+
+I=length(bye)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=ME500[which(ME500$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi1=5:34
+hi2=1:30
+colnames(quarterly)<-c(hi2,"Sum")
+rownames(quarterly)<-c(hi1,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Maine, 2013Q1 - 2020Q2)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+
+```{r}
+Xij=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:30, 30))
+origin.period <- origin.period+4
+dev.period <- rep(1:30, 30)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_ME500=functional_form_data
+```
+
+#  ME (250-499 state residents affected)
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+
+ME250=me[which(me$State.Residents.Affected>=250 & me$State.Residents.Affected<500),]
+
+I=length(bye)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=ME250[which(ME250$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi1=5:34
+hi2=1:30
+colnames(quarterly)<-c(hi2,"Sum")
+rownames(quarterly)<-c(hi1,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Maine, 2013Q1 - 2020Q2)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+
+```{r}
+Xij=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:30, 30))
+origin.period <- origin.period+4
+dev.period <- rep(1:30, 30)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_ME250=functional_form_data
+```
+
+#  ME (0-249 state residents affected)
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+
+ME1=me[-which(me$State.Residents.Affected>=250),] 
+
+I=length(bye)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=ME1[which(ME1$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi1=5:34
+hi2=1:30
+colnames(quarterly)<-c(hi2,"Sum")
+rownames(quarterly)<-c(hi1,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Maine, 2013Q1 - 2020Q2)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+
+```{r}
+Xij=array(0,c(30,30))
+for (i in 1:30) {
+  for (j in 1:30) {
+    if ((i+j)>(30+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:30, 30))
+origin.period <- origin.period+4
+dev.period <- rep(1:30, 30)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_ME1=functional_form_data
+```
+
+#  ND (>=500 state residents affected)
+
+## Prepare the data for North Dakota (2019Q1 - 2021Q4)
+
+```{r,include=FALSE}
+
+nd=all_data[which(all_data$state == "ND"),]
+
+nd$year_month_of_breach <- strftime(nd$Date.of.Breach, "%Y/%m")
+nd$year_month_of_reported <- strftime(nd$Reported.Date, "%Y/%m")
+
+nd$quarter_DoB=0
+nd$quarter_RD=0
+
+# quarter number for DoB
+hi=sort(c(unique(nd$year_month_of_breach),"2020/03","2021/12"))
+for (i in 1:(length(hi)/3)) {
+nd$quarter_DoB[which(nd$year_month_of_breach==hi[(i-1)*3+1])]=i
+nd$quarter_DoB[which(nd$year_month_of_breach==hi[(i-1)*3+2])]=i
+nd$quarter_DoB[which(nd$year_month_of_breach==hi[(i-1)*3+3])]=i
+nd$quarter_RD[which(nd$year_month_of_reported==hi[(i-1)*3+1])]=i
+nd$quarter_RD[which(nd$year_month_of_reported==hi[(i-1)*3+2])]=i
+nd$quarter_RD[which(nd$year_month_of_reported==hi[(i-1)*3+3])]=i
+}
+
+# development quarter
+nd$Development.quarter=nd$quarter_RD-nd$quarter_DoB
+```
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+
+ND500=nd[-which(nd$State.Residents.Affected<500),]
+
+I=length(hi)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=ND500[which(ND500$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(12,12))
+for (i in 1:12) {
+  for (j in 1:12) {
+    if ((i+j)>(12+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi1=29:40
+hi2=1:12
+colnames(quarterly)<-c(hi2,"Sum")
+rownames(quarterly)<-c(hi1,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (North Dakota, 2019Q1 - 2021Q4)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+
+
+```{r}
+Xij=array(0,c(12,12))
+for (i in 1:12) {
+  for (j in 1:12) {
+    if ((i+j)>(12+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:12, 12))
+origin.period <- origin.period+28
+dev.period <- rep(1:12, 12)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_ND500=functional_form_data
+```
+
+# ND (250-499 state residents affected)
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+
+ND250=nd[which(nd$State.Residents.Affected>=250 & nd$State.Residents.Affected<500),]
+
+I=length(hi)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=ND250[which(ND250$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(12,12))
+for (i in 1:12) {
+  for (j in 1:12) {
+    if ((i+j)>(12+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi1=29:40
+hi2=1:12
+colnames(quarterly)<-c(hi2,"Sum")
+rownames(quarterly)<-c(hi1,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (North Dakota, 2019Q1 - 2021Q4)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+
+
+```{r}
+Xij=array(0,c(12,12))
+for (i in 1:12) {
+  for (j in 1:12) {
+    if ((i+j)>(12+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:12, 12))
+origin.period <- origin.period+28
+dev.period <- rep(1:12, 12)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_ND250=functional_form_data
+```
+
+#  WA (>=500 state residents affected)
+
+## Prepare the data for Washington (2015Q4 - 2021Q4)
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+
+wa=all_data[which(all_data$state == "WA"),]
+
+# Assign quarters 
+
+wa$year_month_of_breach <- strftime(wa$Date.of.Breach, "%Y/%m")
+wa$year_month_of_reported <- strftime(wa$Reported.Date, "%Y/%m")
+
+wa$quarter_DoB=0
+wa$quarter_RD=0
+
+# quarter number for DoB
+hi=sort(c(unique(wa$year_month_of_breach),"2021/12"))
+for (i in 1:(length(hi)/3)) {
+wa$quarter_DoB[which(wa$year_month_of_breach==hi[(i-1)*3+1])]=i
+wa$quarter_DoB[which(wa$year_month_of_breach==hi[(i-1)*3+2])]=i
+wa$quarter_DoB[which(wa$year_month_of_breach==hi[(i-1)*3+3])]=i
+wa$quarter_RD[which(wa$year_month_of_reported==hi[(i-1)*3+1])]=i
+wa$quarter_RD[which(wa$year_month_of_reported==hi[(i-1)*3+2])]=i
+wa$quarter_RD[which(wa$year_month_of_reported==hi[(i-1)*3+3])]=i
+}
+
+# development quarter
+wa$Development.quarter=wa$quarter_RD-wa$quarter_DoB
+
+I=length(hi)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=wa[which(wa$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(25,25))
+for (i in 1:25) {
+  for (j in 1:25) {
+    if ((i+j)>(25+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+
+hi1=1:25
+hi2=16:40
+colnames(quarterly)<-c(hi1,"Sum")
+rownames(quarterly)<-c(hi2,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Washington, 2015Q4 - 2021Q4)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+
+
+```{r}
+Xij=array(0,c(25,25))
+for (i in 1:25) {
+  for (j in 1:25) {
+    if ((i+j)>(25+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:25, 25))
+origin.period <- origin.period+15
+dev.period <- rep(1:25, 25)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_WA500=functional_form_data
+```
+
+
+# DE (>=500 state residents affected)
+
+## Prepare the data for Delaware (2018Q2 - 2021Q4)
+
+## Construct and store quarterly matrices
+
+```{r,fig.pos='H'}
+
+de=all_data[which(all_data$state == "DE"),]
+
+# Assign quarters
+de$year_month_of_breach <- strftime(de$Date.of.Breach, "%Y/%m")
+de$year_month_of_reported <- strftime(de$Reported.Date, "%Y/%m")
+
+de$quarter_DoB=0
+de$quarter_RD=0
+
+# quarter number for DoB
+hi=sort(c(unique(de$year_month_of_breach),"2018/06","2018/08","2019/09","2019/12","2020/07","2021/11","2021/12"))
+for (i in 1:(length(hi)/3)) {
+de$quarter_DoB[which(de$year_month_of_breach==hi[(i-1)*3+1])]=i
+de$quarter_DoB[which(de$year_month_of_breach==hi[(i-1)*3+2])]=i
+de$quarter_DoB[which(de$year_month_of_breach==hi[(i-1)*3+3])]=i
+de$quarter_RD[which(de$year_month_of_reported==hi[(i-1)*3+1])]=i
+de$quarter_RD[which(de$year_month_of_reported==hi[(i-1)*3+2])]=i
+de$quarter_RD[which(de$year_month_of_reported==hi[(i-1)*3+3])]=i
+}
+
+# development quarter
+de$Development.quarter=de$quarter_RD-de$quarter_DoB
+
+I=length(hi)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=de[which(de$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(15,15))
+for (i in 1:15) {
+  for (j in 1:15) {
+    if ((i+j)>(15+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi1=26:40
+hi2=1:15
+colnames(quarterly)<-c(hi2,"Sum")
+rownames(quarterly)<-c(hi1,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Delaware, 2018Q2-2021Q4)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+
+```{r}
+Xij=array(0,c(15,15))
+for (i in 1:15) {
+  for (j in 1:15) {
+    if ((i+j)>(15+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:15, 15))
+origin.period <- origin.period+25
+dev.period <- rep(1:15, 15)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_DE500=functional_form_data
+```
+
+
+#  OR (>=250 state residents affected)
+
+
+## Prepare the data for Oregon (2016Q1 - 2021Q4)
+
+```{r,fig.pos='H'}
+or=all_data[which(all_data$state == "OR"),]
+
+or$year_month_of_breach <- strftime(or$Date.of.Breach, "%Y/%m")
+or$year_month_of_reported <- strftime(or$Reported.Date, "%Y/%m")
+
+or$quarter_DoB=0
+or$quarter_RD=0
+
+# quarter number for DoB
+hi=sort(c(unique(or$year_month_of_breach),"2021/12"))
+for (i in 1:(length(hi)/3)) {
+or$quarter_DoB[which(or$year_month_of_breach==hi[(i-1)*3+1])]=i
+or$quarter_DoB[which(or$year_month_of_breach==hi[(i-1)*3+2])]=i
+or$quarter_DoB[which(or$year_month_of_breach==hi[(i-1)*3+3])]=i
+or$quarter_RD[which(or$year_month_of_reported==hi[(i-1)*3+1])]=i
+or$quarter_RD[which(or$year_month_of_reported==hi[(i-1)*3+2])]=i
+or$quarter_RD[which(or$year_month_of_reported==hi[(i-1)*3+3])]=i
+}
+
+# development quarter
+or$Development.quarter=or$quarter_RD-or$quarter_DoB
+
+I=length(hi)/3
+quarterly_triangles <- array(0, c(I, I))
+
+for (i in 1:I) {
+  df1=or[which(or$quarter_DoB==i),]
+  for (j in 1:I) {
+  quarterly_triangles[i,j]=length(which(df1$Development.quarter==(j-1)))
+  }
+}
+
+quarterly=array(0,c(24,24))
+for (i in 1:24) {
+  for (j in 1:24) {
+    if ((i+j)>(24+1)){
+      quarterly[i,j]=0
+    }
+    else {
+      quarterly[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+
+quarterly=cbind(quarterly,rowSums(quarterly))
+quarterly=rbind(quarterly,colSums(quarterly))
+
+quarterly<-as.data.frame(quarterly)
+hi1=17:40
+hi2=1:24
+colnames(quarterly)<-c(hi2,"Sum")
+rownames(quarterly)<-c(hi1,"Sum")
+
+kbl(quarterly, booktabs = T,caption = "Quarterly Frequency Triangle (Oregon, 2016Q1 - 2021Q4)") %>%
+kable_styling(latex_options = "scale_down",position = "center")
+```
+
+## Construct and store quarterly matrices
+
+```{r}
+Xij=array(0,c(24,24))
+for (i in 1:24) {
+  for (j in 1:24) {
+    if ((i+j)>(24+1)){
+      Xij[i,j]=0
+    }
+    else {
+      Xij[i,j]=quarterly_triangles[i,j]
+    }
+    }
+}
+Xij=t(Xij)
+Xij=as.numeric(Xij)
+
+origin.period <- sort(rep(1:24, 24))
+origin.period <- origin.period+16
+dev.period <- rep(1:24, 24)
+c <- origin.period+dev.period-1
+
+# for functional form 
+functional_form_data <- data.frame(Xij,origin.period,dev.period,c)
+colnames(functional_form_data)=c("Xij","i","j","c")
+functional_form_data$i_fac=factor(functional_form_data$i)
+functional_form_data_OR250=functional_form_data
+```
+
+```{r}
+functional_form_data_CA500$all="CA500"
+functional_form_data_IN500$all="IN500"
+functional_form_data_MT500$all="MT500"
+functional_form_data_ME500$all="ME500"
+functional_form_data_ND500$all="ND500"
+functional_form_data_WA500$all="WA500"
+functional_form_data_DE500$all="DE500"
+functional_form_data_OR250$all="OR250"
+functional_form_data_IN250$all="IN250"
+functional_form_data_MT250$all="MT250"
+functional_form_data_ME250$all="ME250"
+functional_form_data_ND250$all="ND250"
+functional_form_data_IN1$all="IN1"
+functional_form_data_MT1$all="MT1"
+functional_form_data_ME1$all="ME1"
+
+functional_form_data_CA500$test=0
+functional_form_data_IN500$test=1
+functional_form_data_MT500$test=2
+functional_form_data_ME500$test=3
+functional_form_data_ND500$test=4
+functional_form_data_WA500$test=5
+functional_form_data_DE500$test=6
+functional_form_data_OR250$test=7
+functional_form_data_IN250$test=8
+functional_form_data_MT250$test=9
+functional_form_data_ME250$test=10
+functional_form_data_ND250$test=11
+functional_form_data_IN1$test=12
+functional_form_data_MT1$test=13
+functional_form_data_ME1$test=14
+
+functional_form_data=rbind(functional_form_data_CA500, functional_form_data_IN500, functional_form_data_MT500, functional_form_data_ME500, functional_form_data_ND500, functional_form_data_WA500, functional_form_data_DE500, functional_form_data_OR250, functional_form_data_IN250, functional_form_data_MT250, functional_form_data_ME250, functional_form_data_ND250, functional_form_data_IN1, functional_form_data_MT1, functional_form_data_ME1)
+
+functional_form_data$CA500=ifelse(functional_form_data$test==0,1,0)
+functional_form_data$IN500=ifelse(functional_form_data$test==1,1,0)
+functional_form_data$MT500=ifelse(functional_form_data$test==2,1,0)
+functional_form_data$ME500=ifelse(functional_form_data$test==3,1,0)
+functional_form_data$ND500=ifelse(functional_form_data$test==4,1,0)
+functional_form_data$WA500=ifelse(functional_form_data$test==5,1,0)
+functional_form_data$DE500=ifelse(functional_form_data$test==6,1,0)
+functional_form_data$OR250=ifelse(functional_form_data$test==7,1,0)
+functional_form_data$IN250=ifelse(functional_form_data$test==8,1,0)
+functional_form_data$MT250=ifelse(functional_form_data$test==9,1,0)
+functional_form_data$ME250=ifelse(functional_form_data$test==10,1,0)
+functional_form_data$ND250=ifelse(functional_form_data$test==11,1,0)
+functional_form_data$IN1=ifelse(functional_form_data$test==12,1,0)
+functional_form_data$MT1=ifelse(functional_form_data$test==13,1,0)
+functional_form_data$ME1=ifelse(functional_form_data$test==14,1,0)
+
+functional_form_data$test=NULL
+write_csv(functional_form_data,"~/Dropbox/R_Studio/Cyber Paper/qtr_matrices_data.csv")
+```
