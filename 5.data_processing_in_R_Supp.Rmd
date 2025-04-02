@@ -1,0 +1,679 @@
+---
+title: "Data processing in R"
+output:
+  html_document:
+    toc: yes
+    toc_depth: '4'
+    df_print: paged
+fontsize: 12pt
+always_allow_html: yes
+bibliography: ACTL90012.bib
+csl: taylor-and-francis-chicago-f.csl
+---
+
+The following steps are repeated for each state: 
+
+- Extract the earliest possible date of breach occurrence.
+- Select breaches within the time periods for which complete and unbiased data are available.
+- Examine breaches with negative reporting delay (i.e., occurrence dates later than discovery/notification, or discovery dates later than notification). Correct dates are retrieved from breach notices. If the breach notice does not contain the correct dates or is not available, the dates are changed to NAs.
+- Delete observations with no date of breach/organisation name/reported date/unknown number of state residents affected/ineligible breaches (i.e., the number of state residents affected is below the threshold that triggers the notification obligation). 
+- Examine and delete duplicate entries regarding the same breach. 
+  - Remove exact duplicates (i.e., same reported date, start and end date of breach, the number of state residents affected). 
+  - Match organisation name and date of breach to locate original and supplementary notices. The notice with the earliest reported date is the original notice. Then, update the number of state residents affected in the original notice by totalling the number of state residents in all notices, as supplementary notices provide the additional number of state residents found to be affected later on. Lastly, delete supplementary notices. 
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+# load packages
+library(readr);library(astsa);library(knitr);library(ggplot2);library(TTR);library(SynthETIC);library(data.table);library(ModelMetrics);library(plotly);library(lubridate);library(stringi);library(FluMoDL);library(ChainLadder);library(MASS);library(AER);library(writexl);library(readxl);library(bbmle);library(MuMIn);library(boot);library(pheatmap);library(gplots);library(kableExtra);library(bookdown);library(ggpubr);library(xtable);library(stargazer);library(forcats);library(rgl);library(htmlwidgets);library("RColorBrewer")
+libs<- c ("tm", "plyr", "class", "SnowballC", "dplyr", "caret", "corrplot", "beepr","RWeka","e1071","ggplot2", "datasets", "maps","plotly", "wordcloud")
+lapply(libs, library, character.only=T)
+```
+
+# California
+
+```{r CA}
+
+# Prepare the data for California (2012Q1 - 2021Q4)
+
+ca_mid=read.csv("CA_R.csv",header = TRUE, stringsAsFactors = FALSE, na.strings = c("NA", "NaN", ""))
+
+# extract the earliest date of breach
+
+for (i in 2:ncol(ca_mid)) {
+  ca_mid[,i] <- as.Date(ca_mid[,i], "%m/%d/%Y")
+}
+
+ca_mid$start_date=ca_mid$Date.s..of.Breach
+
+for (i in 1:nrow(ca_mid)) {
+  
+  if (is.na(ca_mid$start_date[i]) == FALSE) {
+    
+    dates = c()
+    
+    for (j in 3:ncol(ca_mid)){
+    dates=c(ca_mid[i,j],dates)
+    }
+    
+    dates = na.omit(dates)
+    ca_mid$start_date[i] = min(dates)
+    
+  }
+  
+}
+
+# Select data, start with 2608
+
+ca_first=data.frame(ca_mid$Organization.Name,ca_mid$Reported.Date,ca_mid$start_date) #first date
+colnames(ca_first)<-c("Organization.Name","Reported.Date","Date.of.Breach")
+
+ca_first=ca_first[-which(ca_first$Date.of.Breach<"2012-01-01"),]
+ca_first=ca_first[-which(ca_first$Reported.Date>="2021-12-31"),]
+
+## Examine obs with negative reporting delay, record the correct first date of breach
+
+wrong_date=which((ca_first$Reported.Date-ca_first$Date.of.Breach)<0)
+ca_first[which((ca_first$Reported.Date-ca_first$Date.of.Breach)<0),]
+
+ca_first$Date.of.Breach[wrong_date[1]]="2020-12-03"
+ca_first$Date.of.Breach[wrong_date[2]]="2020-11-01"
+ca_first$Date.of.Breach[wrong_date[3]]=NA
+ca_first$Date.of.Breach[wrong_date[4]]="2020-10-24"
+ca_first$Date.of.Breach[wrong_date[5]]="2020-02-23"
+ca_first$Date.of.Breach[wrong_date[6]]="2018-11-01"
+ca_first$Date.of.Breach[wrong_date[7]]="2016-08-10"
+ca_first$Date.of.Breach[wrong_date[8]]="2016-09-05"
+ca_first$Date.of.Breach[wrong_date[9]]="2015-07-30"
+ca_first$Date.of.Breach[wrong_date[10]]="2013-09-24"
+
+## Delete observations with no date of breach/organisation name/reported date/unknown number of state residents affected/ineligible breaches (i.e., the number of state residents affected is below the threshold that triggers the notification obligation)
+
+ca_first=ca_first[-which(is.na(ca_first$Date.of.Breach)),]
+ca_first=ca_first[-which(is.na(ca_first$Organization.Name)),]
+# no breach without reported date 
+
+rownames(ca_first)<-NULL
+
+## Examine and delete duplicate entries regarding the same breach - 56 duplicates, 2198/2254 are not
+
+### Remove exact duplicates
+
+dup=ca_first[duplicated(ca_first),] # 4 exact duplicates
+ca_first=ca_first[-which(duplicated(ca_first)),]
+
+### Match organisation name and date of breach
+
+check = data.frame()
+
+dup=ca_first[duplicated(ca_first[,c(1,3)]),]
+
+for (i in 1:nrow(dup)) {
+
+  same_dob_indexes = which(ca_first$Organization.Name == dup[i,]$Organization.Name & ca_first$Date.of.Breach == dup[i,]$Date.of.Breach)
+
+  if (length(same_dob_indexes) > 1){
+
+  temp <- ca_first[same_dob_indexes,]
+  check = rbind(check,temp)
+
+  min_don <- min(temp$Reported.Date)
+
+  origin_index <- which(ca_first$Organization.Name == dup[i,]$Organization.Name & ca_first$Date.of.Breach == dup[i,]$Date.of.Breach & ca_first$Reported.Date == min_don)
+
+  if (length(origin_index) > 1){
+
+    # same date of notification as well
+    origin_index <- origin_index[1]
+
+  }
+
+  sup_index <- same_dob_indexes[!same_dob_indexes %in% origin_index]
+
+  # delete supplementary notices
+  ca_first <- ca_first[-sup_index,]
+
+  }
+
+  }
+
+```
+
+# Indiana
+
+```{r IN}
+
+In=read.csv("IN_R.csv")
+colnames(In)<-c("Name.of.Company","Date.of.Notification","Date.of.the.Breach","IN.Affected","Total.Affected")
+
+In=In[-which(In$Name.of.Company=="Name of Company or Organization"),]
+In=In[-which(In$Name.of.Company=="Respondent"),]
+In=In[-which(In$Name.of.Company=="Matter: Name"),]
+
+In$Date.of.Notification <- as.Date(In$Date.of.Notification, "%m/%d/%Y")
+In$Date.of.the.Breach<- as.Date(In$Date.of.the.Breach, "%m/%d/%Y")
+In$IN.Affected <- as.numeric(gsub(",","",In$IN.Affected))
+In$Total.Affected <- as.numeric(gsub(",","",In$Total.Affected))
+
+# Select data, start with 6040
+
+In=In[-which(In$Date.of.the.Breach<"2014-01-01"),]
+In=In[-which(In$Date.of.Notification>="2021-07-01"),]
+
+## Delete obs with negative reporting delay because we don't have details
+
+In=In[-which((In$Date.of.Notification-In$Date.of.the.Breach)<0),]
+
+## Delete observations with no date of breach/organisation name/reported date/unknown number of state residents affected/ineligible breaches (i.e., the number of state residents affected is below the threshold that triggers the notification obligation)
+
+In=In[-which(is.na(In$Date.of.Notification)),]
+In=In[-which(is.na(In$Date.of.the.Breach)),]
+In=In[-which(is.na(In$IN.Affected)),]
+
+## Examine and delete duplicate entries regarding the same breach - 42 duplicates, 5322/5364 used
+
+### Remove exact duplicates
+
+dup=In[duplicated(In),] # 13 exact duplicates
+In=In[-which(duplicated(In)),]
+
+### Match organisation name and date of breach
+
+check = data.frame()
+
+dup=In[duplicated(In[,c(1,3)]),]
+
+for (i in 1:nrow(dup)) {
+
+  same_dob_indexes = which(In$Name.of.Company == dup[i,]$Name.of.Company & In$Date.of.the.Breach == dup[i,]$Date.of.the.Breach)
+
+  if (length(same_dob_indexes) > 1){
+
+  temp <- In[same_dob_indexes,]
+  check = rbind(check,temp)
+
+  min_don <- min(temp$Date.of.Notification)
+
+  origin_index <- which(In$Name.of.Company == dup[i,]$Name.of.Company & In$Date.of.the.Breach == dup[i,]$Date.of.the.Breach & In$Date.of.Notification == min_don)
+
+  if (length(origin_index) > 1){
+
+    # same date of notification as well
+    origin_index <- origin_index[1]
+
+  } 
+
+  sup_index <- same_dob_indexes[!same_dob_indexes %in% origin_index]
+
+  # update the number of residents of the original notice with the information in the latest supplementary notices - adding the number of additional state residents affected
+  In[origin_index,]$IN.Affected <- sum(temp$IN.Affected)
+
+  # delete supplementary notices
+  In <- In[-sup_index,]
+
+  }
+
+  }
+```
+
+# Montana
+
+```{r MT}
+mt=read.csv("MT_R.csv",header = TRUE, stringsAsFactors = FALSE, na.strings = c("NA", "NaN", ""))
+
+mt[,2] <- as.Date(mt[,2], "%m/%d/%Y")
+mt[,3] <- as.Date(mt[,3], "%m/%d/%Y")
+mt[,4] <- as.Date(mt[,4], "%m/%d/%Y")
+mt[,5] <- as.numeric(gsub(",", "", mt[,5]))
+mt<-mt[-which(is.na(mt$BUSINESS.NAME)),]
+
+# Select data, start with 3175
+
+mt<-mt[-which(mt$START.OF.BREACH<"2015-10-01"),]
+mt<-mt[-which(mt$DATE.REPORTED>"2021-12-31"),]
+
+## Check end date minus start date. For entries that remain unchanged, end of breach is incorrect. 
+
+wrong_date=which((mt$END.OF.BREACH-mt$START.OF.BREACH)<0)
+mt[which((mt$END.OF.BREACH-mt$START.OF.BREACH)<0),]
+
+mt$START.OF.BREACH[wrong_date[1]]="2020-11-12"
+mt$START.OF.BREACH[wrong_date[2]]="2020-07-27"
+mt$START.OF.BREACH[wrong_date[7]]="2019-07-29"
+mt$START.OF.BREACH[wrong_date[12]]="2018-11-01"
+mt$START.OF.BREACH[wrong_date[13]]="2019-09-26"
+mt$START.OF.BREACH[wrong_date[14]]="2018-09-23"
+mt$START.OF.BREACH[wrong_date[15]]="2018-08-01"
+mt$START.OF.BREACH[wrong_date[16]]="2018-08-01"
+mt$START.OF.BREACH[wrong_date[18]]="2018-06-12"
+mt$START.OF.BREACH[wrong_date[19]]="2018-02-07"
+mt$START.OF.BREACH[wrong_date[20]]="2017-07-01"
+mt$DATE.REPORTED[wrong_date[20]]="2017-10-23"
+
+mt=mt[-wrong_date[c(4,17)],] # can't verify start of breach, left with 3173
+
+## Check date reported minus start date. 
+
+wrong_date=which((mt$DATE.REPORTED-mt$START.OF.BREACH)<0)
+mt[which((mt$DATE.REPORTED-mt$START.OF.BREACH)<0),]
+
+mt$START.OF.BREACH[wrong_date[1]]="2020-11-01"
+mt$DATE.REPORTED[wrong_date[2]]="2019-07-12"
+
+## Delete observations with no date of breach/organisation name/reported date/unknown number of state residents affected/ineligible breaches (i.e., the number of state residents affected is below the threshold that triggers the notification obligation)
+
+mt=mt[-which(is.na(mt$START.OF.BREACH)),]
+mt<-mt[-which(is.na(mt$DATE.REPORTED)),]
+mt<-mt[-which(is.na(mt$MONTANANS.AFFECTED)),] 
+
+## Examine and delete duplicate entries regarding the same breach - 29 duplicates, 3068/3097 used
+
+### Remove exact duplicates
+
+dup=mt[duplicated(mt),] # 7 exact duplicates
+mt=mt[-which(duplicated(mt)),]
+
+### Match organisation name and date of breach
+
+check = data.frame()
+
+dup=mt[duplicated(mt[,c(1,2)]),]
+
+for (i in 1:nrow(dup)) {
+
+  same_dob_indexes = which(mt$BUSINESS.NAME == dup[i,]$BUSINESS.NAME & mt$START.OF.BREACH == dup[i,]$START.OF.BREACH)
+
+  if (length(same_dob_indexes) > 1){
+
+  temp <- mt[same_dob_indexes,]
+  check = rbind(check,temp)
+
+  min_don <- min(temp$DATE.REPORTED)
+
+  origin_index <- which(mt$BUSINESS.NAME == dup[i,]$BUSINESS.NAME & mt$START.OF.BREACH == dup[i,]$START.OF.BREACH & mt$DATE.REPORTED == min_don)
+
+  if (length(origin_index) > 1){
+
+    # same date of notification as well
+    origin_index <- origin_index[1]
+
+  } 
+
+  sup_index <- same_dob_indexes[!same_dob_indexes %in% origin_index]
+
+  # update the number of residents of the original notice with the information in the latest supplementary notices - adding the number of additional state residents affected
+  mt[origin_index,]$MONTANANS.AFFECTED <- sum(temp$MONTANANS.AFFECTED)
+
+  # delete supplementary notices
+  mt <- mt[-sup_index,]
+
+  }
+
+  }
+
+```
+
+# Maine 
+
+```{r ME}
+
+# Prepare the data 
+
+## Maine 2010-2018
+
+me_2010to2018 <- read.csv("ME_R_2010_2018.csv")
+me_2010to2018$Date.of.the.Breach <- as.Date(me_2010to2018$Date.of.the.Breach)
+me_2010to2018$Date.of.Notification <- as.Date(me_2010to2018$Date.of.Notification)
+me_2010to2018$ME.Affected <- as.numeric(me_2010to2018$ME.Affected)
+
+## Maine 2018-2020
+
+me_late <- read.csv("ME_R_2018_2020.csv")
+me_late$X03_01_04_Date.s..Breach.Occurred..start. <- as.Date(me_late$X03_01_04_Date.s..Breach.Occurred..start.,"%m/%d/%Y")
+me_late1<- me_late[-which(is.na(me_late$X03_01_04_Date.s..Breach.Occurred..start.)),]
+
+me_late <- read.csv("ME_R_2018_2020.csv")
+me_late$X03_01_04_Date.s..Breach.Occurred..start. <- as.Date(me_late$X03_01_04_Date.s..Breach.Occurred..start.,"%B %d %Y")
+me_late2<- me_late[-which(is.na(me_late$X03_01_04_Date.s..Breach.Occurred..start.)),]
+
+me_late<-rbind(me_late1,me_late2)
+colnames(me_late)<-c("Name.of.Company","Date.of.the.Breach","Date.of.Notification","ME.Affected","Total.Affected")
+me_late$Date.of.Notification <- as.Date(me_late$Date.of.Notification,"%m/%d/%Y")
+me_late$ME.Affected <- as.numeric(me_late$ME.Affected)
+me_late$Total.Affected<- as.numeric(me_late$Total.Affected)
+
+me<-rbind(me_2010to2018,me_late[,1:4]) #2658
+
+# Select data, start with 2462
+
+me=me[-which(me$Date.of.the.Breach<"2013-01-01"),]
+me=me[-which(me$Date.of.Notification>="2020-07-01"),]
+
+## Delete obs with Date.of.Notification-Date.of.the.Breach<0 because we don't have details, left with 2446
+
+wrong_date=which((me$Date.of.Notification-me$Date.of.the.Breach)<0)
+me$Date.of.Notification[wrong_date[5]]<-"2017-12-04" #Hayden, Narey & Persich, the date wasn't recognised correctly
+me=me[-which((me$Date.of.Notification-me$Date.of.the.Breach)<0),]
+
+## Delete observations with no date of breach/organisation name/reported date/unknown number of state residents affected/ineligible breaches (i.e., the number of state residents affected is below the threshold that triggers the notification obligation); no breach with no organisation name
+
+me=me[-which(is.na(me$Date.of.Notification)),]
+me=me[-which(is.na(me$Date.of.the.Breach)),]
+me=me[-which(is.na(me$ME.Affected)),]
+
+## Examine and delete duplicate entries regarding the same breach - 38 duplicates, 2248/2286 used
+
+### Remove exact duplicates
+
+dup=me[duplicated(me),] # 6 exact duplicates
+me=me[-which(duplicated(me)),]
+
+### Match organisation name and date of breach
+
+check = data.frame()
+
+dup=me[duplicated(me[,c(1,2)]),]
+
+for (i in 1:nrow(dup)) {
+
+  same_dob_indexes = which(me$Name.of.Company == dup[i,]$Name.of.Company & me$Date.of.the.Breach == dup[i,]$Date.of.the.Breach)
+
+  if (length(same_dob_indexes) > 1){
+
+  temp <- me[same_dob_indexes,]
+  check = rbind(check,temp)
+
+  min_don <- min(temp$Date.of.Notification)
+
+  origin_index <- which(me$Name.of.Company == dup[i,]$Name.of.Company & me$Date.of.the.Breach == dup[i,]$Date.of.the.Breach & me$Date.of.Notification == min_don)
+
+  if (length(origin_index) > 1){
+
+    # same date of notification as well
+    origin_index <- origin_index[1]
+
+  } 
+
+  sup_index <- same_dob_indexes[!same_dob_indexes %in% origin_index]
+
+  # update the number of residents of the original notice with the information in the latest supplementary notices - adding the number of additional state residents affected
+  me[origin_index,]$ME.Affected <- sum(temp$ME.Affected)
+
+  # delete supplementary notices
+  me <- me[-sup_index,]
+
+  }
+
+  }
+```
+
+# North Dakota
+
+```{r ND}
+
+nd=read.csv("ND_R.csv",header = TRUE, stringsAsFactors = FALSE, na.strings = c("NA", "NaN", ""))
+
+nd[,3] <- as.Date(nd[,3], "%B %d %Y")
+nd[,5] <- as.Date(nd[,5], "%B %d %Y")
+nd[,4]<-as.Date(nd[,4]," %B %d %Y")
+nd$ND.Residents.Affected<-as.numeric(nd$ND.Residents.Affected)
+
+# extract the earliest date of breach
+
+nd$start_date=nd$Date.of.Breach
+
+for (i in 1:ncol(nd)) {
+  hi=nd[i,]
+  bye=c(hi[1,3],hi[1,4])
+  bye=na.omit(bye)
+  nd$start_date[i]=min(bye)
+}
+
+# create data frames
+nd=data.frame(nd$Business.Name,nd$Date.Reported,nd$start_date,nd$ND.Residents.Affected) #first date
+colnames(nd)<-c("Organization.Name","Reported.Date","Date.of.Breach","ND.Residents.Affected")
+
+# Select data
+
+nd=nd[-which(nd$Date.of.Breach<"2019-01-01"),]
+nd=nd[-which(nd$Reported.Date>="2022-01-01"),]
+
+## Delete observations with no date of breach/organisation name/reported date/unknown number of state residents affected/ineligible breaches (i.e., the number of state residents affected is below the threshold that triggers the notification obligation)
+
+nd=nd[-which(is.na(nd$Date.of.Breach)),]
+nd=nd[-which(is.na(nd$ND.Residents.Affected)),]
+# no breach without reported date 
+
+## no breach with negative reporting delay
+
+## Examine and delete duplicate entries regarding the same breach - 2 duplicates, 203/205 used
+
+### Remove exact duplicates
+
+dup=nd[duplicated(nd),] # 1 exact duplicates
+nd=nd[-which(duplicated(nd)),]
+
+### Match organisation name and date of breach
+
+check = data.frame()
+
+dup=nd[duplicated(nd[,c(1,3)]),]
+
+for (i in 1:nrow(dup)) {
+
+  same_dob_indexes = which(nd$Organization.Name == dup[i,]$Organization.Name & nd$Date.of.Breach == dup[i,]$Date.of.Breach)
+
+  if (length(same_dob_indexes) > 1){
+
+  temp <- nd[same_dob_indexes,]
+  check = rbind(check,temp)
+
+  min_don <- min(temp$Reported.Date)
+
+  origin_index <- which(nd$Organization.Name == dup[i,]$Organization.Name & nd$Date.of.Breach == dup[i,]$Date.of.Breach & nd$Reported.Date == min_don)
+
+  if (length(origin_index) > 1){
+
+    # same date of notification as well
+    origin_index <- origin_index[1]
+
+  } 
+
+  sup_index <- same_dob_indexes[!same_dob_indexes %in% origin_index]
+
+  # update the number of residents of the original notice with the information in the latest supplementary notices - adding the number of additional state residents affected
+  nd[origin_index,]$ND.Residents.Affected <- sum(temp$ND.Residents.Affected)
+
+  # delete supplementary notices
+  nd <- nd[-sup_index,]
+
+  }
+
+  }
+```
+
+# Washington
+
+```{r WA}
+wa=read.csv("WA_R.csv",header = TRUE, stringsAsFactors = FALSE, na.strings = c("NA", "NaN", ""))
+wa[,1] <- as.Date(wa[,1], "%m/%d/%Y")
+wa[,3] <- as.Date(wa[,3], "%m/%d/%Y")
+wa$Number.of.Washingtonians.Affected<-as.numeric(wa$Number.of.Washingtonians.Affected) 
+
+# create data frames
+wa=data.frame(wa$Organization.Name,wa$Date.Reported,wa$Date.of.Breach,wa$Number.of.Washingtonians.Affected) #first date
+colnames(wa)<-c("Organization.Name","Reported.Date","Date.of.Breach","wa.Residents.Affected")
+
+# Select data
+
+wa=wa[-which(wa$Date.of.Breach<"2015-10-01"),]
+wa=wa[-which(wa$Reported.Date>="2022-01-01"),]
+
+## Delete observations with no date of breach/organisation name/reported date/unknown number of state residents affected/ineligible breaches (i.e., the number of state residents affected is below the threshold that triggers the notification obligation)
+
+wa=wa[-which(is.na(wa$Date.of.Breach)),] 
+wa=wa[-which(is.na(wa$wa.Residents.Affected)),]
+wa=wa[-which(wa$wa.Residents.Affected<500),]
+
+# no breach without reported date
+
+## no obs with negative reporting delay
+
+## Examine and delete duplicate entries regarding the same breach - 5 duplicates, 502/507 used
+
+### Remove exact duplicates
+
+dup=wa[duplicated(wa),] # 4 exact duplicates
+wa=wa[-which(duplicated(wa)),]
+
+### Match organisation name and date of breach
+
+check = data.frame()
+
+dup=wa[duplicated(wa[,c(1,3)]),]
+
+for (i in 1:nrow(dup)) {
+
+  same_dob_indexes = which(wa$Organization.Name == dup[i,]$Organization.Name & wa$Date.of.Breach == dup[i,]$Date.of.Breach)
+
+  if (length(same_dob_indexes) > 1){
+
+  temp <- wa[same_dob_indexes,]
+  check = rbind(check,temp)
+
+  min_don <- min(temp$Reported.Date)
+
+  origin_index <- which(wa$Organization.Name == dup[i,]$Organization.Name & wa$Date.of.Breach == dup[i,]$Date.of.Breach & wa$Reported.Date == min_don)
+
+  if (length(origin_index) > 1){
+
+    # same date of notification as well
+    origin_index <- origin_index[1]
+
+  } 
+
+  sup_index <- same_dob_indexes[!same_dob_indexes %in% origin_index]
+
+  # update the number of residents of the original notice with the information in the latest supplementary notices - adding the number of additional state residents affected
+  wa[origin_index,]$wa.Residents.Affected <- sum(temp$wa.Residents.Affected)
+
+  # delete supplementary notices
+  wa <- wa[-sup_index,]
+
+  }
+
+  }
+
+```
+
+# Delaware
+
+```{r DE}
+
+de=read.csv("DE_R.csv",header = TRUE, stringsAsFactors = FALSE, na.strings = c("NA", "NaN", ""))
+de[,2] <- as.Date(de[,2], "%m/%d/%y")
+de[,3] <- as.Date(de[,3], "%d/%m/%y")
+de$Number.of.Potentially.Affected.Delaware.Residents<-as.numeric(de$Number.of.Potentially.Affected.Delaware.Residents)
+
+colnames(de)<-c("Organization.Name","Date.of.Breach","Reported.Date","DE.Residents.Affected")
+row.names(de)<-NULL
+
+# Select data
+de=de[-which(de$Date.of.Breach<"2018-04-14"),]
+
+## Delete observations with no date of breach/organisation name/reported date/unknown number of state residents affected/ineligible breaches (i.e., the number of state residents affected is below the threshold that triggers the notification obligation)
+
+de=de[-which(is.na(de$Date.of.Breach)),] 
+de=de[-which(is.na(de$DE.Residents.Affected)),]
+de=de[-which(de$DE.Residents.Affected<500),]
+
+## Examine obs with negative reporting delay, first date of breach 
+de$Date.of.Breach[which((de$Reported.Date-de$Date.of.Breach)<0)]<-"2019-08-31"
+de$Reported.Date[which((de$Reported.Date-de$Date.of.Breach)<0)]<-"2019-10-22"
+
+
+## Examine and delete duplicate entries regarding the same breach - no duplicates
+
+```
+
+# Oregon
+
+```{r OR}
+or=read.csv("OR_R.csv",header = TRUE, stringsAsFactors = FALSE, na.strings = c("NA", "NaN", ""))
+for (i in 2:ncol(or)) {
+  or[,i] <- as.Date(or[,i], "%m/%d/%Y")
+}
+
+or$start_date=or$Dates.of.Breach
+
+for (i in 1:ncol(or)) {
+  hi=or[i,]
+  bye=hi[1,3]
+  for (j in 4:8){
+    bye=c(hi[1,j],bye)
+  }
+  bye=na.omit(bye)
+  or$start_date[i]=min(bye)
+}
+
+# create data frames
+or=data.frame(or$Organization,or$Reported.Date,or$start_date) #first date
+colnames(or)<-c("Organization.Name","Reported.Date","Date.of.Breach")
+
+# Select data 
+
+or=or[-which(or$Date.of.Breach<"2016-01-01"),]
+or=or[-which(or$Reported.Date>="2022-01-01"),]
+
+## Delete observations with no date of breach/organisation name/reported date/unknown number of state residents affected/ineligible breaches (i.e., the number of state residents affected is below the threshold that triggers the notification obligation)
+
+or=or[-which(is.na(or$Date.of.Breach)),]
+
+## no obs with negative reporting delay
+
+## Examine and delete duplicate entries regarding the same breach - no duplicates
+
+```
+
+```{r}
+
+## Output "elig_breaches.csv" which contains observations used in the modelling stage
+
+ca_first$state="CA"
+ca_first$State.Residents.Affected=500
+ca_data <- subset(ca_first, select=c(1,3,2,4,5))
+colnames(ca_data)=c("Name.of.Company", "Date.of.Breach", "Reported.Date", "state", "State.Residents.Affected")
+
+In$state="IN"
+in_data <- subset(In, select=c(1,3,2,6,4))
+colnames(in_data)=c("Name.of.Company", "Date.of.Breach", "Reported.Date", "state", "State.Residents.Affected")
+
+mt$state="MT"
+mt_data<-subset(mt, select=c(1,2,4,6,5))
+colnames(mt_data)=c("Name.of.Company", "Date.of.Breach", "Reported.Date", "state", "State.Residents.Affected")
+
+me$state="ME"
+me_data<-subset(me, select=c(1,2,3,5,4))
+colnames(me_data)=c("Name.of.Company", "Date.of.Breach", "Reported.Date", "state", "State.Residents.Affected")
+
+nd$state="ND"
+nd_data<-subset(nd, select=c(1,3,2,5,4))
+colnames(nd_data)=c("Name.of.Company", "Date.of.Breach", "Reported.Date", "state", "State.Residents.Affected")
+
+wa$state="WA"
+wa_data<-subset(wa, select=c(1,3,2,5,4))
+colnames(wa_data)=c("Name.of.Company", "Date.of.Breach", "Reported.Date", "state", "State.Residents.Affected")
+
+de$state="DE"
+de_data<-subset(de, select=c(1,2,3,5,4))
+colnames(de_data)=c("Name.of.Company", "Date.of.Breach", "Reported.Date", "state", "State.Residents.Affected")
+
+or$state="OR"
+or$State.Residents.Affected=250
+or_data <- subset(or, select=c(1,3,2,4,5))
+colnames(or_data)=c("Name.of.Company", "Date.of.Breach", "Reported.Date", "state", "State.Residents.Affected")
+
+all_data=rbind(ca_data,in_data,mt_data,me_data,nd_data,wa_data,de_data,or_data)
+
+write_csv(all_data,"~/Dropbox/R_Studio/Cyber Paper/elig_breaches.csv")
+```
+
+
