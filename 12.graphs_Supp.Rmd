@@ -1,0 +1,1301 @@
+---
+title: "Produce graphs and statistics in the paper"
+output: 
+  html_document:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 4
+    number_sections: yes
+    fig_caption: yes
+fontsize: 12pt
+always_allow_html: yes
+---
+
+```{r, include=FALSE}
+# load packages
+library(readr);library(astsa);library(knitr);library(ggplot2);library(TTR);library(SynthETIC);library(data.table);library(ModelMetrics);library(plotly);library(lubridate);library(stringi);library(FluMoDL);library(ChainLadder);library(MASS);library(AER);library(writexl);library(readxl);library(bbmle);library(MuMIn);library(boot);library(pheatmap);library(gplots);library(kableExtra);library(bookdown);library(ggpubr);library(xtable);library(stargazer);library(forcats);library(htmlwidgets);library("RColorBrewer");library(zoo);library("tidyverse")
+
+libs<- c ("tm", "plyr", "class", "SnowballC", "dplyr", "caret", "corrplot", "beepr","e1071","ggplot2", "datasets", "maps","plotly", "wordcloud")
+lapply(libs, library, character.only=T)
+
+# library(rgl);library(RWeka)
+```
+
+# GAM
+
+```{r}
+
+# load matrices for all states
+full <- read_csv("qtr_matrices_data.csv",
+    col_types = cols(i_fac = col_factor(levels = c()),
+        all = col_factor(levels = c())))
+
+full$aq_yearqtr = as.factor(as.yearqtr(2011.75+full$i/4))
+
+############## log(j+1)
+full$log_j_plus_1=log(full$j+1)
+
+############## indicator j<=4
+full$ind_j_less4=ifelse((full$j<=4)&(full$j>=1),1,0)
+
+############## linear splines for AQs
+full$max_0_and_i_minus_11=ifelse(full$i<11,0,full$i-11)
+full$max_0_and_11_minus_i=ifelse(full$i>11,0,11-full$i)
+full$max_0_and_i_minus_21=ifelse(full$i<21,0,full$i-21)
+full$max_0_and_i_minus_34=ifelse(full$i<34,0,full$i-34)
+
+############## inc_j1, inc_j1_j2, inc_j2_j5
+
+full$inc_j1=ifelse(full$j == 1 | full$j == 2 | full$j == 5, 1, 0)
+full$inc_j1_j2=ifelse(full$j == 2 | full$j == 5, 1, 0)
+full$inc_j2_j5=ifelse(full$j == 5, 1, 0)
+
+full$ind_OR250_IN250_MT250=full$OR250+full$IN250+full$MT250
+
+full$ind_IN1_MT1=full$IN1+full$MT1
+full$ind_DE500_ND250=full$DE500+full$ND250
+full$ind_ND500_ME250=full$ND500+full$ME250
+full$ind_IN500_MT500_ME500_WA500_OR250_IN250_MT250=full$IN500+full$MT500+full$ME500+full$WA500+full$OR250+full$IN250+full$MT250
+
+full$ind_IN500_IN250=full$IN500+full$IN250
+full$ind_ND500_WA500_MT250_ME250=full$ND500+full$WA500+full$MT250+full$ME250
+
+############## j 
+
+full$ind_IN500_MT500_ME500_ND500_WA_500_OR250_IN250_MT250_ME250_ND250=full$IN500+full$MT500+full$ME500+full$ND500+full$WA500+full$OR250+full$IN250+full$MT250+full$ME250+full$ND250
+
+############## min(j,6)
+
+full$min_j_6=ifelse(full$j>6,6,full$j)
+
+############## max_0_and_j_minus_6
+
+full$max_0_and_j_minus_6=ifelse(full$j<6,0,full$j-6)
+
+full$ind_IN500_MT500_ND500_WA_500_OR250_IN250_ME250_ND250=full$IN500+full$MT500+full$ND500+full$WA500+full$OR250+full$IN250+full$ME250+full$ND250
+
+full$ind_IN1_ME1=full$IN1+full$ME1
+
+############## ind_c_22; ind_c_28
+
+full$ind_c_22=ifelse(full$c==22,1,0)
+full$ind_c_28=ifelse(full$c==28,1,0)
+
+full$ind_c_22_WA500_28_WA500_OR250=full$ind_c_22*full$WA500+full$ind_c_28*full$WA500+full$ind_c_28*full$OR250
+
+############## ind_i_
+
+full$ind_i_17=ifelse(full$i==17,1,0)
+full$ind_i_21=ifelse(full$i==21,1,0)
+full$ind_i_24=ifelse(full$i==24,1,0)
+full$ind_i_25=ifelse(full$i==25,1,0)
+full$ind_i_14=ifelse(full$i==14,1,0)
+full$ind_i_15=ifelse(full$i==15,1,0)
+full$ind_i_18=ifelse(full$i==18,1,0)
+full$ind_i_20=ifelse(full$i==20,1,0)
+full$ind_i_29=ifelse(full$i==29,1,0)
+full$ind_i_32=ifelse(full$i==32,1,0)
+full$ind_i_7=ifelse(full$i==7,1,0)
+full$ind_i_12=ifelse(full$i==12,1,0)
+full$ind_i_21=ifelse(full$i==21,1,0)
+full$ind_i_22=ifelse(full$i==22,1,0)
+full$ind_i_23=ifelse(full$i==23,1,0)
+full$ind_i_19=ifelse(full$i==19,1,0)
+full$ind_i_27=ifelse(full$i==27,1,0)
+full$ind_i_10=ifelse(full$i==10,1,0)
+full$ind_i_16=ifelse(full$i==16,1,0)
+
+full$ind_i_15_16=ifelse(full$i %in% c(15,16), 1, 0)
+
+full$ind_i_17_or_18=full$ind_i_17 + full$ind_i_18
+full$ind_i_21_or_22_or_23=full$ind_i_21 + full$ind_i_22 + full$ind_i_23
+
+full$ind_i_IN1_14_18=full$IN1*full$ind_i_14+full$IN1*full$ind_i_18
+full$ind_i_IN1_20_32=full$IN1*full$ind_i_20+full$IN1*full$ind_i_32
+
+############## ind_c_
+full$ind_c_12=ifelse(full$c==12,1,0)
+full$ind_c_17=ifelse(full$c==17,1,0)
+full$ind_c_19=ifelse(full$c==19,1,0)
+full$ind_c_32=ifelse(full$c==32,1,0)
+full$ind_c_24=ifelse(full$c==24,-1,0)
+full$ind_c_25=ifelse(full$c==25,1,0)
+full$ind_c_24_25_opposite=full$ind_c_24 +full$ind_c_25
+full$ind_c_26=ifelse(full$c==26,-1,0)
+full$ind_c_27=ifelse(full$c==27,1,0)
+full$ind_c_26_27_opposite=full$ind_c_26 +full$ind_c_27
+full$ind_c_28=ifelse(full$c==28,-1,0)
+full$ind_c_29=ifelse(full$c==29,1,0)
+full$ind_c_28_29_opposite=full$ind_c_28 +full$ind_c_29
+
+############## Interaction terms
+
+full$ind_j_1=ifelse(full$j==1,1,0)
+full$ind_j_2=ifelse(full$j==2,1,0)
+full$ind_j_3=ifelse(full$j==3,1,0)
+full$ind_j_4=ifelse(full$j==4,1,0)
+full$ind_j_5=ifelse(full$j==5,1,0)
+
+full$ind_i_ge_24=ifelse(full$i>=24,1,0)
+full$max_0_and_i_minus_24=ifelse(full$i<24,0,full$i-24)
+full$max_0_and_i_minus_23=ifelse(full$i<23,0,full$i-23)
+full$ind_j_5_times_ind_i_17=full$ind_j_5*full$ind_i_17
+full$ind_j_5_times_ind_i_19=full$ind_j_5*full$ind_i_19
+full$ind_j_5_times_ind_i_24=full$ind_j_5*full$ind_i_24
+
+############## Setting segment identifiers with states
+
+full$ind_i_ME1_12_17_18_21_22_23=full$ME1*full$ind_i_17_or_18+full$ME1*full$ind_i_21_or_22_or_23+full$ME1*full$ind_i_12
+
+full$MT1_ME1=full$MT1+full$ME1
+
+full$ind_j_5_times_ind_i_17_WA500_OR250=full$WA500*full$ind_j_5_times_ind_i_17+full$OR250*full$ind_j_5_times_ind_i_17
+
+full$ind_j5_ind_i17_IN500_ind_j5_ind_i19_IN500_WA500_OR250_ind_j5_ind_i24_IN500=full$IN500*full$ind_j_5_times_ind_i_17+full$IN500*full$ind_j_5_times_ind_i_19+full$WA500*full$ind_j_5_times_ind_i_19+full$OR250*full$ind_j_5_times_ind_i_19+full$IN500*full$ind_j_5_times_ind_i_24
+
+full$ind_j_5_times_ind_i_19_IN1_MT1_ME1=full$IN1*full$ind_j_5_times_ind_i_19+full$MT1*full$ind_j_5_times_ind_i_19+full$ME1*full$ind_j_5_times_ind_i_19
+
+###### Post-covid, data_seg*AQ interactions
+
+full$i_fac=ifelse(full$i <= 32, "le32", full$i)
+full$i_fac=as.factor(full$i_fac)
+full$i_fac <- relevel(full$i_fac, ref = "le32")
+
+###### Post-covid, simplifications
+
+full$ind_i_ge_33=ifelse(full$i >= 33, 1, 0)
+full$ind_i_33=ifelse(full$i == 33, 1, 0)
+full$ind_i_34=ifelse(full$i == 34, 1, 0)
+full$max_0_and_i_minus_34=ifelse(full$i<34,0,full$i-34)
+
+full$IN500_ND500_ind_i_ge_33_ND500_ind_i_33=(full$IN500+full$ND500)*full$ind_i_ge_33+full$ND500*full$ind_i_33
+
+full$WA500_OR250=full$WA500+full$OR250
+full$MT250_ME250=full$MT250+full$ME250
+
+full$ind_i_37=ifelse(full$i == 37, 1, 0)
+full$ind_i_38=ifelse(full$i==38,1,0)
+full$ind_c_36=ifelse(full$c==36,1,0)
+full$ind_c_30=ifelse(full$c==30,1,0)
+full$ind_c_35=ifelse(full$c==35,1,0)
+full$ind_c_34=ifelse(full$c==34,1,0)
+
+full$ind_i_ge_21=ifelse(full$i>=21,1,0)
+full$max_0_and_i_minus_21=ifelse(full$i<21,0,full$i-21)
+full$ind_c_30_31=ifelse(full$c == 30 | full$c == 31, 1, 0)
+
+###### matrices for GAM
+
+estimation = full[-which(full$all %in% c("IN500","IN250","IN1") & full$c > 38),]
+estimation = estimation[-which(estimation$all %in% c("ME500","ME250","ME1") & estimation$c > 34),]
+estimation = estimation[-which(estimation$c > 40),]  
+
+###### zero weights 
+
+estimation = estimation[-which(estimation$i %in% c(26, 32, 33) & estimation$all == "CA500"),]
+estimation = estimation[-which(estimation$i == 33  & estimation$all %in% c("IN1", "MT1", "WA500")),]
+estimation = estimation[-which(estimation$i == 17  & estimation$all %in% c("OR250", "WA500")),]
+
+
+############## GAM 
+
+poi=glm(Xij ~ -1 + all + all:i + all:I(i^2) + CA500:ind_j_1 + CA500:log_j_plus_1 + CA500:log_j_plus_1:ind_j_less4 +CA500:ind_j_less4:log_j_plus_1:max_0_and_11_minus_i
++CA500:ind_j_less4:log_j_plus_1:j:max_0_and_i_minus_11 + CA500:ind_i_16:ind_j_4 + CA500:ind_i_19:ind_j_5 + CA500:ind_i_10 + CA500:ind_i_15_16 + CA500:ind_i_21 + CA500:ind_c_17 + CA500:ind_c_35 + CA500:ind_i_ge_33 + CA500:max_0_and_i_minus_34 + +CA500:ind_j_less4:log_j_plus_1:j:max_0_and_i_minus_21 + CA500:ind_j_1:max_0_and_i_minus_21 + CA500:ind_i_38 +ind_OR250_IN250_MT250:inc_j1+IN500:inc_j1+MT500:inc_j1+ME500:inc_j1+ND500:inc_j1+WA500:inc_j1+DE500:inc_j1+ME250:inc_j1+ND250:inc_j1+IN1:inc_j1+MT1:inc_j1+ME1:inc_j1+ind_IN1_MT1:inc_j1_j2+ind_DE500_ND250:inc_j1_j2+ind_ND500_ME250:inc_j1_j2+ind_IN500_MT500_ME500_WA500_OR250_IN250_MT250:inc_j1_j2+ME1:inc_j1_j2 + ind_IN500_IN250:inc_j2_j5 + ind_ND500_WA500_MT250_ME250:inc_j2_j5 + MT500:inc_j2_j5 + OR250:inc_j2_j5 + ND250:inc_j2_j5 +IN1:inc_j2_j5 + MT1:inc_j2_j5 + ME1:inc_j2_j5 + ind_IN500_MT500_ME500_ND500_WA_500_OR250_IN250_MT250_ME250_ND250:j + DE500:j + IN1:min_j_6 + MT1:min_j_6 + ME1:min_j_6 + ind_IN500_MT500_ND500_WA_500_OR250_IN250_ME250_ND250:max_0_and_j_minus_6 + ME500:max_0_and_j_minus_6 + DE500:max_0_and_j_minus_6 + MT250:max_0_and_j_minus_6  + ind_IN1_ME1:max_0_and_j_minus_6 + MT1:max_0_and_j_minus_6 + ind_c_22_WA500_28_WA500_OR250 + IN1:max_0_and_i_minus_11 + ME1:max_0_and_i_minus_11 + IN1:ind_i_17 + MT1:ind_i_17 + IN1:ind_i_21 + MT1:ind_i_21 + IN1:ind_i_24 + IN1:ind_i_25 + ind_i_IN1_14_18 + IN1:ind_i_15 + ind_i_IN1_20_32 + IN1:ind_i_29 + IN1:ind_c_12 + IN1:ind_c_19 + IN1:ind_c_32 + IN1:ind_c_24_25_opposite + IN1:ind_j_2:ind_i_ge_24 + ind_i_ME1_12_17_18_21_22_23 + ME1:ind_i_7 + ME1:ind_c_26_27_opposite + ME1:ind_c_28_29_opposite + IN1:ind_j_3:ind_i_ge_24 + MT1:ind_j_3:ind_i_ge_24 + ME1:ind_j_3:ind_i_ge_24 + IN1:ind_i_ge_24:ind_j_4 + MT1:ind_i_ge_24:ind_j_4 + ME1:ind_i_ge_24:ind_j_4 + MT1:ind_j_5:ind_i_ge_24 + ME1:ind_j_5:ind_i_ge_24 + MT1_ME1:ind_j_2:max_0_and_i_minus_24 + IN1:ind_j_3:max_0_and_i_minus_24 + MT1:ind_j_3:max_0_and_i_minus_24 + ME1:ind_j_3:max_0_and_i_minus_24 + IN1:j:max_0_and_i_minus_24 + MT1:ind_j_4:max_0_and_i_minus_24 + ME1:ind_j_4:max_0_and_i_minus_24 + ME1:ind_j_5:max_0_and_i_minus_24 + MT1:j:ind_i_ge_24 + ME1:j:ind_i_ge_24 + IN1:max_0_and_j_minus_6:max_0_and_i_minus_24 + ME1:max_0_and_j_minus_6:max_0_and_i_minus_23 + IN1:ind_j_5_times_ind_i_17 + MT1:ind_j_5_times_ind_i_17 + ME1:ind_j_5_times_ind_i_17 + ind_j5_ind_i17_IN500_ind_j5_ind_i19_IN500_WA500_OR250_ind_j5_ind_i24_IN500 + ind_j_5_times_ind_i_19_IN1_MT1_ME1 + WA500:ind_j_5:ind_i_25 + MT1:ind_j_1:ind_i_24 + MT1:ind_j_5:ind_i_27 + ME1:ind_j_4:ind_i_19 + IN250:ind_i_ge_33 + ND250:ind_i_ge_33 + IN1:ind_i_ge_33 + MT1:ind_i_ge_33 + ME1:ind_i_ge_33 + IN1:ind_i_34 + IN1:max_0_and_i_minus_34 + IN250:ind_i_33 + DE500:ind_i_34 + IN500_ND500_ind_i_ge_33_ND500_ind_i_33 + WA500_OR250:ind_i_ge_33 + MT250_ME250:ind_i_ge_33 + OR250:ind_i_37 + OR250:ind_c_34 + IN1:ind_c_36 + MT1:ind_c_30 + MT1:ind_c_35 + WA500:ind_c_35 + ME1:ind_i_ge_24:ind_j_1, family = quasipoisson(link = "log"), data = estimation)
+
+summary(poi)
+
+# stargazer(poi,type="html", dep.var.labels=c("CA and supermodel"),
+#           digits=4, align=TRUE,
+#           intercept.bottom=FALSE,
+#           star.cutoffs = c(0.1,0.05,0.01),
+#           out= "test.html")
+
+# hi=as.data.frame(coef(summary(poi)))
+# write.csv(hi,"~/Dropbox/R_Studio/Cyber Paper/glm.csv")
+
+```
+
+```{r}
+functional_form_data_CA500=full[which(full$CA500==1),]
+functional_form_data_IN1=full[which(full$IN1==1),]
+functional_form_data_MT1=full[which(full$MT1==1),]
+functional_form_data_ME1=full[which(full$ME1==1),]
+
+functional_form_data_CA500$fitted.value=predict(poi, functional_form_data_CA500, type = "response")
+functional_form_data_IN1$fitted.value=predict(poi, functional_form_data_IN1, type = "response")
+functional_form_data_MT1$fitted.value=predict(poi, functional_form_data_MT1, type = "response")
+functional_form_data_ME1$fitted.value=predict(poi, functional_form_data_ME1, type = "response")
+```
+
+# Changes in the underlying development pattern, removing special CQ effects and exceptional observations 
+
+- Show both cumulative and incremental percentages of breaches reported in DQ1-4 based on all breaches (incl. IBNRs). Panel A shows incremental percentages and panel B shows cumulative percentages. 
+
+## CA (>499) (2012Q1 - 2021Q4)
+
+```{r}
+
+# compute the coefficients involving development quarters, excluding indicator functions for calendar quarter and exceptional cells
+
+functional_form_data_CA500$dev= -1.472175*functional_form_data_CA500$ind_j_1 -3.190488*functional_form_data_CA500$log_j_plus_1 -0.614390*functional_form_data_CA500$log_j_plus_1*functional_form_data_CA500$ind_j_less4 +0.054924*functional_form_data_CA500$log_j_plus_1*functional_form_data_CA500$ind_j_less4*functional_form_data_CA500$max_0_and_11_minus_i +0.013479*functional_form_data_CA500$log_j_plus_1*functional_form_data_CA500$ind_j_less4*functional_form_data_CA500$j*functional_form_data_CA500$max_0_and_i_minus_11 -0.050553*functional_form_data_CA500$ind_j_1*functional_form_data_CA500$max_0_and_i_minus_21 -0.009738*functional_form_data_CA500$log_j_plus_1*functional_form_data_CA500$ind_j_less4*functional_form_data_CA500$j*functional_form_data_CA500$max_0_and_i_minus_21
+
+functional_form_data_CA500$dev=exp(functional_form_data_CA500$dev)
+
+# divide the coefficients computed above by the sum of coefficients in the same accident quarter, to calculate the percentage of notifications in each development quarter
+
+dev_CA = subset(functional_form_data_CA500,select = c(i, j, dev, aq_yearqtr))
+dev_CA$sc = 0
+for (i in 1:max(dev_CA$i)){
+  dev_CA$sc[which(dev_CA$i == i)] = sum(dev_CA$dev[which(dev_CA$i == i)])
+}
+dev_CA$dev_sc = dev_CA$dev/dev_CA$sc*100
+
+# calculate the cumulative percentage of notifications in each development quarter in DQ1-6
+
+dev_CA$dev_sc_cum = 0 
+for (i in 1:max(dev_CA$i)){
+  temp = dev_CA[which(dev_CA$i == i), ]
+  temp$dev_sc_cum = cumsum(temp$dev_sc)
+  dev_CA$dev_sc_cum[which(dev_CA$i == i)] = temp$dev_sc_cum
+}
+
+# compute the average delay in quarters
+
+avg_CA_delay = dev_CA
+avg_CA = array(0,c(max(dev_CA$i),3))
+
+for (i in 1:max(dev_CA$i)){
+  temp = avg_CA_delay[which(avg_CA_delay$i == i), ]
+  avg_CA[i,1] = i
+  avg_CA[i,2] = 2011.75+i/4
+  avg_CA[i,3] = sum(temp$j*temp$dev_sc/100)
+}
+avg_CA = as.data.frame(avg_CA)
+avg_CA$category = "Trend"
+colnames(avg_CA) = c("AQ", "Time", "Delay", "Category")
+
+```
+
+```{r}
+
+dev_CA = subset(dev_CA, j <= 6)
+
+# Create the panel for incremental percentages
+
+#### AQ 1-11
+dev_CA_1_11 = subset(dev_CA, i %in% c(1,4,8,11))
+
+mycolors <-brewer.pal(n = length(c(1,4,8,11)), name = "Greys")
+dev_CA_1_11$color = mycolors[as.factor(dev_CA_1_11$i)]
+
+gg1_inc<-ggplot(data=dev_CA_1_11, aes(x=j, y=dev_sc, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Incremental % of # of Notifications incl. IBNRs") + scale_y_continuous(limits = c(0, 50), breaks = seq(0, 50, by = 10)) + scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+
+  theme(legend.title=element_blank())
+
+#### AQ 11-21
+dev_CA_11_21 = subset(dev_CA, i %in% c(11,14,18,21))
+
+mycolors <-brewer.pal(n = length(c(11,14,18,21)), name = "Greys")
+dev_CA_11_21$color = mycolors[as.factor(dev_CA_11_21$i)]
+
+gg2_inc<-ggplot(data=dev_CA_11_21, aes(x=j, y=dev_sc, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Incremental % of # of Notifications incl. IBNRs") + scale_y_continuous(limits = c(0, 50), breaks = seq(0, 50, by = 10)) + scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+
+  theme(legend.title=element_blank())
+
+#### AQ 21-40
+dev_CA_21_40 = subset(dev_CA, i %in% c(21,25,29,33,37,40))
+
+mycolors <-brewer.pal(n = length(c(21,25,29,33,37,40)), name = "Greys")
+dev_CA_21_40$color = mycolors[as.factor(dev_CA_21_40$i)]
+
+fig_CA_dp2_inc<-ggplot(data=dev_CA_21_40, aes(x=j, y=dev_sc, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Incremental % of # of Notifications incl. IBNRs")+ scale_y_continuous(limits = c(0, 50), breaks = seq(0, 50, by = 10))+ scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+ 
+  theme(legend.title=element_blank())
+
+```
+
+```{r}
+
+# Create the panel for cumulative percentages
+
+#### AQ 1-11
+dev_CA_1_11 = subset(dev_CA, i %in% c(1,4,8,11))
+
+mycolors <-brewer.pal(n = length(c(1,4,8,11)), name = "Greys")
+dev_CA_1_11$color = mycolors[as.factor(dev_CA_1_11$i)]
+
+gg1<-ggplot(data=dev_CA_1_11, aes(x=j, y=dev_sc_cum, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Cumulative % of # of Notifications incl. IBNRs") + scale_y_continuous(limits = c(20, 100), breaks = seq(20, 100, by = 20)) + scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+
+  theme(legend.title=element_blank())
+
+#### AQ 11-21
+dev_CA_11_21 = subset(dev_CA, i %in% c(11,14,18,21))
+
+mycolors <-brewer.pal(n = length(c(11,14,18,21)), name = "Greys")
+dev_CA_11_21$color = mycolors[as.factor(dev_CA_11_21$i)]
+
+gg2<-ggplot(data=dev_CA_11_21, aes(x=j, y=dev_sc_cum, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Cumulative % of # of Notifications incl. IBNRs") + scale_y_continuous(limits = c(20, 100), breaks = seq(20, 100, by = 20)) + scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+
+  theme(legend.title=element_blank())
+
+#### AQ 21-40
+dev_CA_21_40 = subset(dev_CA, i %in% c(21,25,29,33,37,40))
+
+mycolors <-brewer.pal(n = length(c(21,25,29,33,37,40)), name = "Greys")
+dev_CA_21_40$color = mycolors[as.factor(dev_CA_21_40$i)]
+
+fig_CA_dp2<-ggplot(data=dev_CA_21_40, aes(x=j, y=dev_sc_cum, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Cumulative % of # of Notifications incl. IBNRs")+ scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 20))+ scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+ 
+  theme(legend.title=element_blank())
+
+```
+
+```{r,fig.align='center'}
+
+fig_CA_dp_com1<-ggarrange(gg1_inc,gg1,labels = c("A", "B"),ncol = 2, nrow = 1) + theme(plot.title = element_text(color="black", size=14, face="bold")) #+ ggtitle("Development pattern trend (AQ 2012Q1 - AQ 2014Q3, CA(>499))") 
+
+fig_CA_dp_com2<-ggarrange(gg2_inc,gg2,labels = c("A", "B"),ncol = 2, nrow = 1) + theme(plot.title = element_text(color="black", size=14, face="bold")) #+ ggtitle("Development pattern trend (AQ 2014Q3 - AQ 2017Q1, CA(>499))") 
+
+fig_CA_dp_com3<-ggarrange(fig_CA_dp2_inc,fig_CA_dp2,labels = c("A", "B"),ncol = 2, nrow = 1) + theme(plot.title = element_text(color="black", size=14, face="bold")) #+ ggtitle("Development pattern trend (AQ 2017Q1 - AQ 2021Q4, CA(>499))") 
+
+fig_CA_dp_com1
+fig_CA_dp_com2
+fig_CA_dp_com3
+
+```
+
+## IN (0-249) (2014Q1 - 2021Q2)
+
+```{r,fig.align='center'}
+
+# Adjust for quarters
+
+qtr_adj = 8
+
+# compute the coefficients involving development quarters, excluding indicator functions for calendar quarter and exceptional cells
+
+functional_form_data_IN1$dev=3.970e-01*functional_form_data_IN1$inc_j1+3.977e-01*functional_form_data_IN1$inc_j1_j2-6.106e-01*functional_form_data_IN1$inc_j2_j5 -7.152e-01*functional_form_data_IN1$min_j_6-1.834e-01*functional_form_data_IN1$max_0_and_j_minus_6 +3.812e-01*functional_form_data_IN1$ind_j_2*functional_form_data_IN1$ind_i_ge_24 +9.300e-01*functional_form_data_IN1$ind_j_3*functional_form_data_IN1$ind_i_ge_24 +7.946e-01*functional_form_data_IN1$ind_j_4*functional_form_data_IN1$ind_i_ge_24 +0*functional_form_data_IN1$ind_j_5*functional_form_data_IN1$ind_i_ge_24 +0*functional_form_data_IN1$j*functional_form_data_IN1$ind_i_ge_24 +0*functional_form_data_IN1$ind_j_2*functional_form_data_IN1$max_0_and_i_minus_24 +2.495e-02*functional_form_data_IN1$ind_j_3*functional_form_data_IN1$max_0_and_i_minus_24 +0*functional_form_data_IN1$ind_j_4*functional_form_data_IN1$max_0_and_i_minus_24 +0*functional_form_data_IN1$ind_j_5*functional_form_data_IN1$max_0_and_i_minus_24 +4.060e-02*functional_form_data_IN1$j*functional_form_data_IN1$max_0_and_i_minus_24 -1.309e-01*functional_form_data_IN1$max_0_and_j_minus_6*functional_form_data_IN1$max_0_and_i_minus_24
+functional_form_data_IN1$dev=exp(functional_form_data_IN1$dev)
+
+# divide the coefficients computed above by the sum of coefficients in the same accident quarter, to calculate the percentage of notifications in each development quarter
+
+dev_IN1 = subset(functional_form_data_IN1, select = c(i, j, dev, aq_yearqtr))
+dev_IN1$sc = 0
+for (i in 1:(max(dev_IN1$i)-qtr_adj)){
+  dev_IN1$sc[which(dev_IN1$i == (i+qtr_adj))] = sum(dev_IN1$dev[which(dev_IN1$i == (i+qtr_adj))])
+}
+dev_IN1$dev_sc = dev_IN1$dev/dev_IN1$sc*100
+
+# calculate the cumulative percentage of notifications in each development quarter in DQ1-6
+
+dev_IN1$dev_sc_cum = 0 
+for (i in 1:(max(dev_IN1$i)-qtr_adj)){
+  temp = dev_IN1[which(dev_IN1$i == (i+qtr_adj)), ]
+  temp$dev_sc_cum = cumsum(temp$dev_sc)
+  dev_IN1$dev_sc_cum[which(dev_IN1$i == (i+qtr_adj))] = temp$dev_sc_cum
+}
+
+# compute the average delay in quarters
+
+avg_IN1_delay = dev_IN1
+avg_IN1 = array(0,c((max(dev_IN1$i)-qtr_adj),3))
+for (i in 1:(max(dev_IN1$i)-qtr_adj)){
+  temp = avg_IN1_delay[which(avg_IN1_delay$i == (qtr_adj + i)), ]
+  avg_IN1[i,1] = i + qtr_adj
+  avg_IN1[i,2] = 2011.75 + qtr_adj/4 +i/4
+  avg_IN1[i,3] = sum(temp$j*temp$dev_sc/100)
+}
+
+avg_IN1 = as.data.frame(avg_IN1)
+avg_IN1$category = "Trend"
+colnames(avg_IN1) = c("AQ", "Time", "Delay", "Category")
+
+dev_IN1 = subset(dev_IN1, j <= 6)
+
+# Create the panel for incremental percentages
+
+#### AQ 23-38
+dev_IN1_23_38 = subset(dev_IN1, i %in% c(23,24,28,32,36,38))
+
+mycolors <-brewer.pal(n = length(c(23,24,28,32,36,38)), name = "Greys")
+dev_IN1_23_38$color = mycolors[as.factor(dev_IN1_23_38$i)]
+
+fig_IN1_dp_inc<-ggplot(data=dev_IN1_23_38, aes(x=j, y=dev_sc, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Incremental % of # of Notifications incl. IBNRs")+ scale_y_continuous(limits = c(0, 50), breaks = seq(0, 50, by = 10))+ scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1)) +
+  theme(legend.title=element_blank())
+
+# Create the panel for cumulative percentages
+
+#### AQ 23-38
+dev_IN1_23_38 = subset(dev_IN1, i %in% c(23,24,28,32,36,38))
+
+mycolors <-brewer.pal(n = length(c(23,24,28,32,36,38)), name = "Greys")
+dev_IN1_23_38$color = mycolors[as.factor(dev_IN1_23_38$i)]
+
+fig_IN1_dp<-ggplot(data=dev_IN1_23_38, aes(x=j, y=dev_sc_cum, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Cumulative % of # of Notifications incl. IBNRs")+ scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 20))+ scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1)) +
+  theme(legend.title=element_blank())
+
+# graph 
+
+fig_IN1_dp_com<-ggarrange(fig_IN1_dp_inc,fig_IN1_dp,labels = c("A", "B"),ncol = 2, nrow = 1)  + theme(plot.title = element_text(color="black", size=14, face="bold")) #+ ggtitle("Development pattern trend (AQ 2014Q1 - AQ 2021Q2, IN (0-249))")
+
+fig_IN1_dp_com
+```
+
+## MT (0-249) (2015Q4 - 2021Q4)
+
+```{r,fig.align='center'}
+
+# Adjust for quarters
+
+qtr_adj = 15
+
+# compute the coefficients involving development quarters, excluding indicator functions for calendar quarter and exceptional cells
+
+functional_form_data_MT1$dev= 1.052e+00*functional_form_data_MT1$inc_j1 +3.977e-01*functional_form_data_MT1$inc_j1_j2 -1.531e+00*functional_form_data_MT1$inc_j2_j5 -2.827e-01*functional_form_data_MT1$min_j_6 -3.223e-01*functional_form_data_MT1$max_0_and_j_minus_6 +0*functional_form_data_MT1$ind_j_2*functional_form_data_MT1$ind_i_ge_24 +1.318e+00*functional_form_data_MT1$ind_j_3*functional_form_data_MT1$ind_i_ge_24 +8.188e-01*functional_form_data_MT1$ind_j_4*functional_form_data_MT1$ind_i_ge_24 +1.001e+00*functional_form_data_MT1$ind_j_5*functional_form_data_MT1$ind_i_ge_24  -4.301e-02*functional_form_data_MT1$j*functional_form_data_MT1$ind_i_ge_24 +7.757e-02*functional_form_data_MT1$ind_j_2*functional_form_data_MT1$max_0_and_i_minus_24 +7.308e-02*functional_form_data_MT1$ind_j_3*functional_form_data_MT1$max_0_and_i_minus_24 +7.396e-02*functional_form_data_MT1$ind_j_4*functional_form_data_MT1$max_0_and_i_minus_24 +0*functional_form_data_MT1$ind_j_5*functional_form_data_MT1$max_0_and_i_minus_24 +0*functional_form_data_MT1$j*functional_form_data_MT1$max_0_and_i_minus_24 +0*functional_form_data_MT1$max_0_and_j_minus_6*functional_form_data_MT1$max_0_and_i_minus_24
+functional_form_data_MT1$dev=exp(functional_form_data_MT1$dev)
+
+# divide the coefficients computed above by the sum of coefficients in the same accident quarter, to calculate the percentage of notifications in each development quarter
+
+dev_MT1 = subset(functional_form_data_MT1, select = c(i, j, dev, aq_yearqtr))
+dev_MT1$sc = 0
+for (i in 1:(max(dev_MT1$i)-qtr_adj)){
+  dev_MT1$sc[which(dev_MT1$i == (i+qtr_adj))] = sum(dev_MT1$dev[which(dev_MT1$i == (i+qtr_adj))])
+}
+dev_MT1$dev_sc = dev_MT1$dev/dev_MT1$sc*100
+
+# calculate the cumulative percentage of notifications in each development quarter in DQ1-6
+
+dev_MT1$dev_sc_cum = 0 
+for (i in 1:(max(dev_MT1$i)-qtr_adj)){
+  temp = dev_MT1[which(dev_MT1$i == (i+qtr_adj)), ]
+  temp$dev_sc_cum = cumsum(temp$dev_sc)
+  dev_MT1$dev_sc_cum[which(dev_MT1$i == (i+qtr_adj))] = temp$dev_sc_cum
+}
+
+# compute the average delay in quarters
+
+avg_MT1_delay = dev_MT1
+avg_MT1 = array(0,c((max(dev_MT1$i)-qtr_adj),3))
+for (i in 1:(max(dev_MT1$i)-qtr_adj)){
+  temp = avg_MT1_delay[which(avg_MT1_delay$i == (qtr_adj + i)), ]
+  avg_MT1[i,1] = i + qtr_adj
+  avg_MT1[i,2] = 2011.75 + qtr_adj/4 +i/4
+  avg_MT1[i,3] = sum(temp$j*temp$dev_sc/100)
+}
+
+avg_MT1 = as.data.frame(avg_MT1)
+avg_MT1$category = "Trend"
+colnames(avg_MT1) = c("AQ", "Time", "Delay", "Category")
+
+dev_MT1 = subset(dev_MT1, j <= 6)
+
+# Create the panel for incremental percentages
+
+#### AQ 23-40
+dev_MT1_23_40 = subset(dev_MT1, i %in% c(23,24,28,32,36,40))
+
+mycolors <-brewer.pal(n = length(c(23,24,28,32,36,40)), name = "Greys")
+dev_MT1_23_40$color = mycolors[as.factor(dev_MT1_23_40$i)]
+
+fig_MT1_dp_inc<-ggplot(data=dev_MT1_23_40, aes(x=j, y=dev_sc, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Incremental % of # of Notifications incl. IBNRs") + scale_y_continuous(limits = c(0, 50), breaks = seq(0, 50, by = 10))+ scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+
+  theme(legend.title=element_blank())
+
+# Create the panel for cumulative percentages
+
+#### AQ 23-40
+dev_MT1_23_40 = subset(dev_MT1, i %in% c(23,24,28,32,36,40))
+
+mycolors <-brewer.pal(n = length(c(23,24,28,32,36,40)), name = "Greys")
+dev_MT1_23_40$color = mycolors[as.factor(dev_MT1_23_40$i)]
+
+fig_MT1_dp<-ggplot(data=dev_MT1_23_40, aes(x=j, y=dev_sc_cum, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Cumulative % of # of Notifications incl. IBNRs") + scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 20))+ scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+
+  theme(legend.title=element_blank())
+
+# graph 
+
+fig_MT1_dp_com<-ggarrange(fig_MT1_dp_inc,fig_MT1_dp,labels = c("A", "B"),ncol = 2, nrow = 1) + theme(plot.title = element_text(color="black", size=14, face="bold")) #+ ggtitle("Development pattern trend (AQ 2015Q4 - AQ 2021Q4, MT (0-249))")
+
+fig_MT1_dp_com
+```
+
+## ME (0-249) (2013Q1 - 2020Q2)
+
+```{r,fig.align='center'}
+
+# Adjust for quarters
+
+qtr_adj = 4
+
+# compute the coefficients involving development quarters, excluding indicator functions for calendar quarter and exceptional cells
+
+functional_form_data_ME1$dev= 6.670e-01*functional_form_data_ME1$inc_j1 +1.475e-01*functional_form_data_ME1$inc_j1_j2 -6.840e-01*functional_form_data_ME1$inc_j2_j5 -5.989e-01*functional_form_data_ME1$min_j_6 -1.834e-01*functional_form_data_ME1$max_0_and_j_minus_6 +0*functional_form_data_ME1$ind_j_2*functional_form_data_ME1$ind_i_ge_24 +3.832e-01*functional_form_data_ME1$ind_j_3*functional_form_data_ME1$ind_i_ge_24 +4.309e-01*functional_form_data_ME1$ind_j_4*functional_form_data_ME1$ind_i_ge_24 +1.204e-02*functional_form_data_ME1$ind_j_5*functional_form_data_ME1$ind_i_ge_24 +1.761e-01*functional_form_data_ME1$j*functional_form_data_ME1$ind_i_ge_24 +7.757e-02*functional_form_data_ME1$ind_j_2*functional_form_data_ME1$max_0_and_i_minus_24 +1.666e-01*functional_form_data_ME1$ind_j_3*functional_form_data_ME1$max_0_and_i_minus_24 +1.186e-01*functional_form_data_ME1$ind_j_4*functional_form_data_ME1$max_0_and_i_minus_24 +6.521e-02*functional_form_data_ME1$ind_j_5*functional_form_data_ME1$max_0_and_i_minus_24 +0*functional_form_data_ME1$j*functional_form_data_ME1$max_0_and_i_minus_24 -2.091e-01*functional_form_data_ME1$max_0_and_j_minus_6*functional_form_data_ME1$max_0_and_i_minus_23-4.621e-01*functional_form_data_ME1$ind_j_1*functional_form_data_ME1$ind_i_ge_24
+functional_form_data_ME1$dev=exp(functional_form_data_ME1$dev)
+
+# divide the coefficients computed above by the sum of coefficients in the same accident quarter, to calculate the percentage of notifications in each development quarter
+
+dev_ME1 = subset(functional_form_data_ME1, select = c(i, j, dev, aq_yearqtr))
+dev_ME1$sc = 0
+for (i in 1:(max(dev_ME1$i)-qtr_adj)){
+  dev_ME1$sc[which(dev_ME1$i == (i+qtr_adj))] = sum(dev_ME1$dev[which(dev_ME1$i == (i+qtr_adj))])
+}
+dev_ME1$dev_sc = dev_ME1$dev/dev_ME1$sc*100
+
+# calculate the cumulative percentage of notifications in each development quarter in DQ1-6
+
+dev_ME1$dev_sc_cum = 0 
+for (i in 1:(max(dev_ME1$i)-qtr_adj)){
+  temp = dev_ME1[which(dev_ME1$i == (i+qtr_adj)), ]
+  temp$dev_sc_cum = cumsum(temp$dev_sc)
+  dev_ME1$dev_sc_cum[which(dev_ME1$i == (i+qtr_adj))] = temp$dev_sc_cum
+}
+
+# compute the average delay in quarters
+
+avg_ME1_delay = dev_ME1
+avg_ME1 = array(0,c((max(dev_ME1$i)-qtr_adj),3))
+for (i in 1:(max(dev_ME1$i)-qtr_adj)){
+  temp = avg_ME1_delay[which(avg_ME1_delay$i == (qtr_adj + i)), ]
+  avg_ME1[i,1] = i + qtr_adj
+  avg_ME1[i,2] = 2011.75 + qtr_adj/4 +i/4
+  avg_ME1[i,3] = sum(temp$j*temp$dev_sc/100)
+}
+
+avg_ME1 = as.data.frame(avg_ME1)
+avg_ME1$category = "Trend"
+
+dev_ME1 = subset(dev_ME1, j <= 6)
+
+# Create the panel for incremental percentages
+
+#### AQ 23-28
+dev_ME1_23_28 = subset(dev_ME1, i %in% c(23,24,28))
+
+mycolors <-brewer.pal(n = length(c(23,24,28)), name = "Greys")
+dev_ME1_23_28$color = mycolors[as.factor(dev_ME1_23_28$i)]
+
+fig_ME1_dp_inc<-ggplot(data=dev_ME1_23_28, aes(x=j, y=dev_sc, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Incremental % of # of Notifications incl. IBNRs") + scale_y_continuous(limits = c(0, 50), breaks = seq(0, 50, by = 10))+ scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+
+  theme(legend.title=element_blank())
+
+#### AQ 28-34
+dev_ME1_28_34 = subset(dev_ME1, i %in% c(28,32,34))
+
+mycolors <-brewer.pal(n = length(c(28,32,34)), name = "Greys")
+dev_ME1_28_34$color = mycolors[as.factor(dev_ME1_28_34$i)]
+
+fig_ME1_dp_inc2<-ggplot(data=dev_ME1_28_34, aes(x=j, y=dev_sc, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Incremental % of # of Notifications incl. IBNRs") + scale_y_continuous(limits = c(0, 50), breaks = seq(0, 50, by = 10))+ scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+
+  theme(legend.title=element_blank())
+
+# Create the panel for cumulative percentages
+
+#### AQ 23-28
+dev_ME1_23_28 = subset(dev_ME1, i %in% c(23,24,28))
+
+mycolors <-brewer.pal(n = length(c(23,24,28)), name = "Greys")
+dev_ME1_23_28$color = mycolors[as.factor(dev_ME1_23_28$i)]
+
+fig_ME1_dp<-ggplot(data=dev_ME1_23_28, aes(x=j, y=dev_sc_cum, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Cumulative % of # of Notifications incl. IBNRs") + scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 20))+ scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+
+  theme(legend.title=element_blank()) + theme(plot.title = element_text(color="black", size=14, face="bold"))
+
+#### AQ 28-34
+dev_ME1_28_34 = subset(dev_ME1, i %in% c(28,32,34))
+
+mycolors <-brewer.pal(n = length(c(28,32,34)), name = "Greys")
+dev_ME1_28_34$color = mycolors[as.factor(dev_ME1_28_34$i)]
+
+fig_ME1_dp2<-ggplot(data=dev_ME1_28_34, aes(x=j, y=dev_sc_cum, group = aq_yearqtr, colour = aq_yearqtr))+geom_line()+theme_classic()+scale_colour_manual(name = "Accident\nquarter", values = mycolors)+
+xlab("Development quarters") +
+ylab("Fitted Cumulative % of # of Notifications incl. IBNRs") + scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 20))+ scale_x_continuous(limits = c(1, 6), breaks = seq(1, 6, by = 1))+
+  theme(legend.title=element_blank()) + theme(plot.title = element_text(color="black", size=14, face="bold"))
+
+# graph 
+
+fig_ME1_dp_com1 <-ggarrange(fig_ME1_dp_inc,fig_ME1_dp,labels = c("A", "B"),ncol = 2, nrow = 1)  + theme(plot.title = element_text(color="black", size=14, face="bold")) #+ ggtitle("Development pattern trend (AQ 2013Q1 - AQ 2018Q4, ME (0-249))")
+
+fig_ME1_dp_com2 <-ggarrange(fig_ME1_dp_inc2,fig_ME1_dp2,labels = c("A", "B"),ncol = 2, nrow = 1) + theme(plot.title = element_text(color="black", size=14, face="bold")) #+ ggtitle("Development pattern trend (AQ 2018Q4 - AQ 2020Q2, ME (0-249))")
+
+fig_ME1_dp_com1
+fig_ME1_dp_com2
+```
+
+# Special CQ effects and exceptional observations: comparing changes in average delay with and without these components
+
+## CA (>499) (2012Q1 - 2021Q4)
+
+```{r,warning=F,fig.align='center'}
+
+# compute the fitted percentage of notifications in each development quarter for each accident quarter
+
+cal_CA = subset(functional_form_data_CA500,select = c(i, j, fitted.value, aq_yearqtr))
+
+cal_CA$sc = 0
+for (i in 1:max(cal_CA$i)){
+  cal_CA$sc[which(cal_CA$i == i)] = sum(cal_CA$fitted.value[which(cal_CA$i == i)])
+}
+cal_CA$cal_sc = cal_CA$fitted.value/cal_CA$sc*100
+
+# compute the fitted average delay, which includes calendar effects and exceptional cells
+
+cal_CA_delay = cal_CA
+cal_avg_CA = array(0,c(max(cal_CA$i),3))
+for (i in 1:max(cal_CA$i)){
+  temp = cal_CA_delay[which(cal_CA_delay$i == i), ]
+  cal_avg_CA[i,1] = i
+  cal_avg_CA[i,2] = 2011.75+i/4
+  cal_avg_CA[i,3] = sum(temp$j*temp$cal_sc/100)
+}
+cal_avg_CA = as.data.frame(cal_avg_CA)
+cal_avg_CA$category = "Fitted average delay"
+colnames(cal_avg_CA) = c("AQ", "Time", "Delay", "Category")
+
+# For periods that have been assigned zero weight, compute the actual delay observed in the data.
+
+zero_weight_CA_26 = subset(functional_form_data_CA500, i == 26, select = c(i, j, c, Xij, fitted.value, aq_yearqtr))
+zero_weight_CA_26$ult = ifelse(zero_weight_CA_26$c <= 40, zero_weight_CA_26$Xij, zero_weight_CA_26$fitted.value)
+zero_weight_CA_26$sc = sum(zero_weight_CA_26$ult)
+zero_weight_CA_26$cal_sc = zero_weight_CA_26$ult/zero_weight_CA_26$sc
+avg_CA_26 = sum(zero_weight_CA_26$j*zero_weight_CA_26$cal_sc)
+
+zero_weight_CA_32 = subset(functional_form_data_CA500, i == 32, select = c(i, j, c, Xij, fitted.value, aq_yearqtr))
+zero_weight_CA_32$ult = ifelse(zero_weight_CA_32$c <= 40, zero_weight_CA_32$Xij, zero_weight_CA_32$fitted.value)
+zero_weight_CA_32$sc = sum(zero_weight_CA_32$ult)
+zero_weight_CA_32$cal_sc = zero_weight_CA_32$ult/zero_weight_CA_32$sc
+avg_CA_32 = sum(zero_weight_CA_32$j*zero_weight_CA_32$cal_sc)
+
+zero_weight_CA_33 = subset(functional_form_data_CA500, i == 33, select = c(i, j, c, Xij, fitted.value, aq_yearqtr))
+zero_weight_CA_33$ult = ifelse(zero_weight_CA_33$c <= 40, zero_weight_CA_33$Xij, zero_weight_CA_33$fitted.value)
+zero_weight_CA_33$sc = sum(zero_weight_CA_33$ult)
+zero_weight_CA_33$cal_sc = zero_weight_CA_33$ult/zero_weight_CA_33$sc
+avg_CA_33 = sum(zero_weight_CA_33$j*zero_weight_CA_33$cal_sc)
+
+cal_avg_CA$Delay[which(cal_avg_CA$AQ == 26)] = avg_CA_26
+cal_avg_CA$Delay[which(cal_avg_CA$AQ == 32)] = avg_CA_32
+cal_avg_CA$Delay[which(cal_avg_CA$AQ == 33)] = avg_CA_33
+
+com_delay_CA = rbind(avg_CA, cal_avg_CA)
+colnames(com_delay_CA) = c("AQ", "Time", "Delay", "Category")
+
+fig_com_delay_CA <-ggplot(data = com_delay_CA, aes(x = Time, y = Delay, group = Category, shape = Category, linetype = Category)) +geom_line()+geom_point() +
+theme_classic() +
+xlab("Accident quarters") + scale_y_continuous(limits = c(2.8, 4.0), breaks = seq(2.8, 4.0, by = 0.2)) + scale_x_continuous(limits = c(2012, 2022), breaks = seq(2012, 2022, by = 1)) +
+ylab("Quarters") +
+  theme(legend.title=element_blank(), plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(color="black", size=12, face="bold")) #+ggtitle("Fitted average delay and its trend - CA(>499)")
+
+fig_com_delay_CA
+
+# colour = Category, 
+```
+
+## IN (0-249) (2014Q1 - 2021Q2)
+
+```{r,warning=F,fig.align='center'}
+
+# Adjust for quarters
+
+qtr_adj = 8
+
+# compute the fitted percentage of notifications in each development quarter for each accident quarter
+
+cal_IN1 = subset(functional_form_data_IN1, select = c(i, j, fitted.value, aq_yearqtr))
+cal_IN1$sc = 0
+for (i in 1:(max(cal_IN1$i)-qtr_adj)){
+  cal_IN1$sc[which(cal_IN1$i == (i+qtr_adj))] = sum(cal_IN1$fitted.value[which(cal_IN1$i == (i+qtr_adj))])
+}
+cal_IN1$cal_sc = cal_IN1$fitted.value/cal_IN1$sc*100
+
+# compute the fitted average delay, which includes calendar effects and exceptional cells
+
+cal_IN1_delay = cal_IN1
+cal_avg_IN1 = array(0,c((max(dev_IN1$i)-qtr_adj),3))
+for (i in 1:(max(dev_IN1$i)-qtr_adj)){
+  temp = cal_IN1_delay[which(cal_IN1_delay$i == (qtr_adj + i)), ]
+  cal_avg_IN1[i,1] = i + qtr_adj
+  cal_avg_IN1[i,2] = 2011.75 + qtr_adj/4 + i/4
+  cal_avg_IN1[i,3] = sum(temp$j*temp$cal_sc/100)
+}
+cal_avg_IN1 = as.data.frame(cal_avg_IN1)
+cal_avg_IN1$category = "Fitted average delay"
+colnames(cal_avg_IN1) = c("AQ", "Time", "Delay", "Category")
+
+# For periods that have been assigned zero weight, compute the actual delay observed in the data.
+
+zero_weight_IN1_33 = subset(functional_form_data_IN1, i == 33, select = c(i, j, c, Xij, fitted.value, aq_yearqtr))
+zero_weight_IN1_33$ult = ifelse(zero_weight_IN1_33$c <= 38, zero_weight_IN1_33$Xij, zero_weight_IN1_33$fitted.value)
+zero_weight_IN1_33$sc = sum(zero_weight_IN1_33$ult)
+zero_weight_IN1_33$cal_sc = zero_weight_IN1_33$ult/zero_weight_IN1_33$sc
+avg_IN1_33 = sum(zero_weight_IN1_33$j*zero_weight_IN1_33$cal_sc)
+
+cal_avg_IN1$Delay[which(cal_avg_IN1$AQ == 33)] = avg_IN1_33
+
+com_delay_IN1 = rbind(avg_IN1, cal_avg_IN1)
+colnames(com_delay_IN1) = c("AQ", "Time", "Delay", "Category")
+
+# graph
+
+fig_com_delay_IN1 <-ggplot(data = com_delay_IN1, aes(x = Time, y = Delay, group = Category, shape = Category, linetype = Category)) +geom_line()+geom_point() +
+theme_classic() +
+xlab("Accident quarters") + scale_y_continuous(limits = c(1.9, 3.1), breaks = seq(1.9, 3.1, by = 0.2)) + scale_x_continuous(limits = c(2012, 2022), breaks = seq(2012, 2022, by = 1)) +
+ylab("Quarters") +
+  theme(legend.title=element_blank(), plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(color="black", size=12, face="bold")) # +ggtitle("Fitted average delay and its trend - IN(0-249)")
+
+fig_com_delay_IN1
+
+```
+
+## MT (0-249) (2015Q4 - 2021Q4)
+
+```{r,warning=F,fig.align='center'}
+
+# Adjust for quarters
+
+qtr_adj = 15
+
+# compute the fitted percentage of notifications in each development quarter for each accident quarter
+
+cal_MT1 = subset(functional_form_data_MT1, select = c(i, j, fitted.value, aq_yearqtr))
+cal_MT1$sc = 0
+for (i in 1:(max(cal_MT1$i)-qtr_adj)){
+  cal_MT1$sc[which(cal_MT1$i == (i+qtr_adj))] = sum(cal_MT1$fitted.value[which(cal_MT1$i == (i+qtr_adj))])
+}
+cal_MT1$cal_sc = cal_MT1$fitted.value/cal_MT1$sc*100
+
+# compute the fitted average delay, which includes calendar effects and exceptional cells
+
+cal_MT1_delay = cal_MT1
+cal_avg_MT1 = array(0,c((max(dev_MT1$i)-qtr_adj),3))
+for (i in 1:(max(dev_MT1$i)-qtr_adj)){
+  temp = cal_MT1_delay[which(cal_MT1_delay$i == (qtr_adj + i)), ]
+  cal_avg_MT1[i,1] = i + qtr_adj
+  cal_avg_MT1[i,2] = 2011.75 + qtr_adj/4 + i/4
+  cal_avg_MT1[i,3] = sum(temp$j*temp$cal_sc/100)
+}
+
+cal_avg_MT1 = as.data.frame(cal_avg_MT1)
+cal_avg_MT1$category = "Fitted average delay"
+colnames(cal_avg_MT1) = c("AQ", "Time", "Delay", "Category")
+
+# For periods that have been assigned zero weight, compute the actual delay observed in the data.
+
+zero_weight_MT1_33 = subset(functional_form_data_MT1, i == 33, select = c(i, j, c, Xij, fitted.value, aq_yearqtr))
+zero_weight_MT1_33$ult = ifelse(zero_weight_MT1_33$c <= 40, zero_weight_MT1_33$Xij, zero_weight_MT1_33$fitted.value)
+zero_weight_MT1_33$sc = sum(zero_weight_MT1_33$ult)
+zero_weight_MT1_33$cal_sc = zero_weight_MT1_33$ult/zero_weight_MT1_33$sc
+avg_MT1_33 = sum(zero_weight_MT1_33$j*zero_weight_MT1_33$cal_sc)
+
+cal_avg_MT1$Delay[which(cal_avg_MT1$AQ == 33)] = avg_MT1_33
+
+com_delay_MT1 = rbind(avg_MT1, cal_avg_MT1)
+colnames(com_delay_MT1) = c("AQ", "Time", "Delay", "Category")
+
+# graph
+
+fig_com_delay_MT1 <-ggplot(data = com_delay_MT1, aes(x = Time, y = Delay, group = Category, shape = Category, linetype = Category)) +geom_line()+geom_point() +
+theme_classic() +
+xlab("Accident quarters") + scale_y_continuous(limits = c(2.5, 3.5), breaks = seq(2.5, 3.5, by = 0.2)) + scale_x_continuous(limits = c(2012, 2022), breaks = seq(2012, 2022, by = 1)) +
+ylab("Quarters") +
+  theme(legend.title=element_blank(), plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(color="black", size=12, face="bold")) #+ggtitle("Fitted average delay and its trend - MT(0-249)")
+
+fig_com_delay_MT1
+```
+
+## ME (0-249) (2013Q1 - 2020Q2)
+
+```{r,warning=F,fig.align='center'}
+
+# Adjust for quarters
+
+qtr_adj = 4
+
+# compute the fitted percentage of notifications in each development quarter for each accident quarter
+
+cal_ME1 = subset(functional_form_data_ME1, select = c(i, j, fitted.value, aq_yearqtr))
+cal_ME1$sc = 0
+for (i in 1:(max(cal_ME1$i)-qtr_adj)){
+  cal_ME1$sc[which(cal_ME1$i == (i+qtr_adj))] = sum(cal_ME1$fitted.value[which(cal_ME1$i == (i+qtr_adj))])
+}
+cal_ME1$cal_sc = cal_ME1$fitted.value/cal_ME1$sc*100
+
+# compute the fitted average delay, which includes calendar effects and exceptional cells
+
+cal_ME1_delay = cal_ME1
+cal_avg_ME1 = array(0,c((max(dev_ME1$i)-qtr_adj),3))
+for (i in 1:(max(dev_ME1$i)-qtr_adj)){
+  temp = cal_ME1_delay[which(cal_ME1_delay$i == (qtr_adj + i)), ]
+  cal_avg_ME1[i,1] = i + qtr_adj
+  cal_avg_ME1[i,2] = 2011.75 + qtr_adj/4 + i/4
+  cal_avg_ME1[i,3] = sum(temp$j*temp$cal_sc/100)
+}
+
+cal_avg_ME1 = as.data.frame(cal_avg_ME1)
+cal_avg_ME1$category = "Fitted average delay"
+
+com_delay_ME1 = rbind(avg_ME1, cal_avg_ME1)
+colnames(com_delay_ME1) = c("AQ", "Time", "Delay", "Category")
+
+# graph
+
+fig_com_delay_ME1 <-ggplot(data = com_delay_ME1, aes(x = Time, y = Delay, group = Category, shape = Category, linetype = Category)) +geom_line()+geom_point() +
+theme_classic() +
+xlab("Accident quarters") + scale_y_continuous(limits = c(2.3, 3.5), breaks = seq(2.3, 3.5, by = 0.2)) + scale_x_continuous(limits = c(2012, 2022), breaks = seq(2012, 2022, by = 1)) +
+ylab("Quarters") +
+  theme(legend.title=element_blank(), plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(color="black", size=12, face="bold")) #+ggtitle("Fitted average delay and its trend - ME(0-249)")
+
+fig_com_delay_ME1
+
+```
+
+# Frequency trend
+
+- The ultimate number of incurred breaches adds actual counts in the upper triangle and the forecasts of IBNR events in the lower.
+
+## CA (>499) (2012Q1 - 2021Q4)
+
+```{r,fig.align='center',warning=F}
+
+############ Reported 
+
+aq_actual = numeric(0)
+for (i in 1:max(functional_form_data_CA500$i)){
+  aq_actual[i] = sum(functional_form_data_CA500$Xij[which(functional_form_data_CA500$i == i)])
+}
+
+x=1:max(functional_form_data_CA500$i)
+k=2011.75 + (1:max(functional_form_data_CA500$i))*0.25
+y=aq_actual
+z=rep(1,max(functional_form_data_CA500$i))
+dat2=cbind(x,k,y,z)
+dat2<-as.data.frame(dat2)
+
+############ Ultimate incurred 
+
+ult=array(0,c(max(functional_form_data_CA500$i),max(functional_form_data_CA500$i)))
+for (i in 1:max(functional_form_data_CA500$i)){
+  for (j in 1:max(functional_form_data_CA500$i)){
+    if ((i+j) <= (max(functional_form_data_CA500$i)+1)){
+      ult[i,j]=functional_form_data_CA500$Xij[which(functional_form_data_CA500$i == i & functional_form_data_CA500$j == j)]
+    }
+    else {
+      ult[i,j]=functional_form_data_CA500$fitted.value[which(functional_form_data_CA500$i == i & functional_form_data_CA500$j == j)]
+    }
+  }
+}
+
+aq_ultimate = rowSums(ult)
+
+y=aq_ultimate
+aq_comp_CA=as.data.frame(cbind(x,k,y))
+z=rep(2,max(functional_form_data_CA500$i))
+dat3=cbind(x,k,y,z)
+dat3<-as.data.frame(dat3)
+
+dat<-rbind(dat2,dat3)
+dat$z=as.factor(dat$z)
+
+# graph
+
+fig_CA_at2 <- ggplot(data = dat, aes(x = k, y = y, group = z, shape = z, linetype = z)) +
+  geom_line() + 
+  geom_point() +
+  scale_shape_manual(values = c('1' = 19, '2' = 15), labels = c("Reported", "Ultimate incurred")) + 
+  scale_linetype_manual(values = c('1' = "solid", '2' = "dotted"), labels = c("Reported", "Ultimate incurred")) +
+  theme_classic() +
+  xlab("Accident quarters") + 
+  ylab("Number of data breaches") +
+  theme(legend.title = element_blank(), plot.title = element_text(color = "black", size = 14, face = "bold")) +
+  ylim(c(0, 150)) +
+  scale_x_continuous(limits = c(2012, 2022), breaks = seq(2012, 2022, by = 1)) +
+  geom_smooth(method = "lm", se = FALSE, color = "black") 
+  # + ggtitle("Reported versus Ultimate incurred breaches (AQ 2012Q1 - AQ 2021Q4, CA(>499))")
+
+fig_CA_at2
+
+```
+
+## IN (0-249) (2014Q1 - 2021Q2)
+
+```{r,fig.align='center',warning=F}
+
+# Adjust for quarters
+
+qtr_adj = 8
+
+############ Reported 
+
+aq_actual = numeric(0)
+
+for (i in 1:(max(functional_form_data_IN1$i)-qtr_adj)){
+  aq_actual[i] = sum(functional_form_data_IN1$Xij[which(functional_form_data_IN1$i == (i+qtr_adj))])
+}
+
+x=min(functional_form_data_IN1$i):max(functional_form_data_IN1$i)
+k=2011.75 + (min(functional_form_data_IN1$i):max(functional_form_data_IN1$i))*0.25
+y=aq_actual
+z=rep(1,max(functional_form_data_IN1$i)-qtr_adj)
+dat2=cbind(x,k,y,z)
+dat2<-as.data.frame(dat2)
+
+############ Ultimate incurred 
+
+ult=array(0,c(max(functional_form_data_IN1$i)-qtr_adj,max(functional_form_data_IN1$i)-qtr_adj))
+for (i in 1:(max(functional_form_data_IN1$i)-qtr_adj)){
+  for (j in 1:(max(functional_form_data_IN1$i)-qtr_adj)){
+    if ((i+j)<=(max(functional_form_data_IN1$i)-qtr_adj+1)){
+      ult[i,j]=functional_form_data_IN1$Xij[which(functional_form_data_IN1$i == (i+qtr_adj) & functional_form_data_IN1$j == j)]
+    }
+    else {
+      ult[i,j]=functional_form_data_IN1$fitted.value[which(functional_form_data_IN1$i == (i+qtr_adj) & functional_form_data_IN1$j == j)]
+    }
+  }
+}
+
+aq_ultimate = rowSums(ult)
+
+y=aq_ultimate
+aq_comp_IN1=as.data.frame(cbind(x,k,y))
+z=rep(2,max(functional_form_data_IN1$i)-qtr_adj)
+dat3=cbind(x,k,y,z)
+dat3<-as.data.frame(dat3)
+
+dat<-rbind(dat2,dat3)
+dat$z=as.factor(dat$z)
+
+figure2_IN1<-ggplot(data = dat, aes(x = k, y = y, group = z, shape = z, linetype = z)) +
+  geom_line() + 
+  geom_point() +
+  scale_shape_manual(values = c('1' = 19, '2' = 15), labels = c("Reported", "Ultimate incurred")) + 
+  scale_linetype_manual(values = c('1' = "solid", '2' = "dotted"), labels = c("Reported", "Ultimate incurred")) +
+theme_classic() +
+xlab("Accident quarters") + 
+ylab("Number of data breaches") +
+  theme(legend.title=element_blank()) + scale_x_continuous(limits = c(2012, 2022), breaks = seq(2012, 2022, by = 1)) + theme(plot.title = element_text(color="black", size=14, face="bold")) + geom_smooth(method = "lm", se = FALSE, color = "black")
+#+ggtitle("Reported versus Ultimate incurred breaches (AQ 2014Q1 - 2021Q2, IN (0-249))")
+
+figure2_IN1
+
+```
+
+## MT (0-249) (2015Q4 - 2021Q4)
+
+```{r,fig.align='center',warning=F}
+
+# Adjust for quarters
+
+qtr_adj = 15
+
+############ Reported
+
+aq_actual = numeric(0)
+for (i in 1:(max(functional_form_data_MT1$i)-qtr_adj)){
+  aq_actual[i] = sum(functional_form_data_MT1$Xij[which(functional_form_data_MT1$i == (i+qtr_adj))])
+}
+
+x=min(functional_form_data_MT1$i):max(functional_form_data_MT1$i)
+k=2011.75 + (min(functional_form_data_MT1$i):max(functional_form_data_MT1$i))*0.25
+y=aq_actual
+z=rep(1,max(functional_form_data_MT1$i)-qtr_adj)
+dat2=cbind(x,k,y,z)
+dat2<-as.data.frame(dat2)
+
+############ Ultimate incurred 
+
+ult=array(0,c(max(functional_form_data_MT1$i)-qtr_adj,max(functional_form_data_MT1$i)-qtr_adj))
+for (i in 1:(max(functional_form_data_MT1$i)-qtr_adj)){
+  for (j in 1:(max(functional_form_data_MT1$i)-qtr_adj)){
+    if ((i+j)<=(max(functional_form_data_MT1$i)-qtr_adj+1)){
+      ult[i,j]=functional_form_data_MT1$Xij[which(functional_form_data_MT1$i == (i+qtr_adj) & functional_form_data_MT1$j == j)]
+    }
+    else {
+      ult[i,j]=functional_form_data_MT1$fitted.value[which(functional_form_data_MT1$i == (i+qtr_adj) & functional_form_data_MT1$j == j)]
+    }
+  }
+}
+
+aq_ultimate = rowSums(ult)
+
+y=aq_ultimate
+aq_comp_MT1=as.data.frame(cbind(x,k,y))
+z=rep(2,max(functional_form_data_MT1$i)-qtr_adj)
+dat3=cbind(x,k,y,z)
+dat3<-as.data.frame(dat3)
+
+dat<-rbind(dat2,dat3)
+dat$z=as.factor(dat$z)
+
+figure2_MT1<-ggplot(data = dat, aes(x = k, y = y, group = z, shape = z, linetype = z)) +
+  geom_line() + 
+  geom_point() +
+  scale_shape_manual(values = c('1' = 19, '2' = 15), labels = c("Reported", "Ultimate incurred")) + 
+  scale_linetype_manual(values = c('1' = "solid", '2' = "dotted"), labels = c("Reported", "Ultimate incurred")) +
+theme_classic() +
+xlab("Accident quarters") + 
+ylab("Number of data breaches") +
+  theme(legend.title=element_blank()) + scale_x_continuous(limits = c(2012, 2022), breaks = seq(2012, 2022, by = 1))+ theme(plot.title = element_text(color="black", size=14, face="bold"))+ geom_smooth(method = "lm", se = FALSE, color = "black") #+ggtitle("Reported versus Ultimate incurred breaches (AQ 2015Q4 - 2021Q4, MT (0-249))")
+
+figure2_MT1
+```
+
+## ME (0-249) (2013Q1 - 2020Q2)
+
+```{r,fig.align='center',warning=F}
+
+# Adjust for quarters
+
+qtr_adj = 4
+
+############ Reported 
+
+aq_actual = numeric(0)
+for (i in 1:(max(functional_form_data_ME1$i)-qtr_adj)){
+  aq_actual[i] = sum(functional_form_data_ME1$Xij[which(functional_form_data_ME1$i == (i+qtr_adj))])
+}
+
+x=min(functional_form_data_ME1$i):max(functional_form_data_ME1$i)
+k=2011.75 + (min(functional_form_data_ME1$i):max(functional_form_data_ME1$i))*0.25
+y=aq_actual
+z=rep(1,max(functional_form_data_ME1$i)-qtr_adj)
+dat2=cbind(x,k,y,z)
+dat2<-as.data.frame(dat2)
+
+############ Ultimate incurred 
+
+ult=array(0,c(max(functional_form_data_ME1$i)-qtr_adj,max(functional_form_data_ME1$i)-qtr_adj))
+for (i in 1:(max(functional_form_data_ME1$i)-qtr_adj)){
+  for (j in 1:(max(functional_form_data_ME1$i)-qtr_adj)){
+    if ((i+j)<=(max(functional_form_data_ME1$i)-qtr_adj+1)){
+      ult[i,j]=functional_form_data_ME1$Xij[which(functional_form_data_ME1$i == (i+qtr_adj) & functional_form_data_ME1$j == j)]
+    }
+    else {
+      ult[i,j]=functional_form_data_ME1$fitted.value[which(functional_form_data_ME1$i == (i+qtr_adj) & functional_form_data_ME1$j == j)]
+    }
+  }
+}
+
+aq_ultimate = rowSums(ult)
+
+y=aq_ultimate
+aq_comp_ME1=as.data.frame(cbind(x,k,y))
+z=rep(2,max(functional_form_data_ME1$i)-qtr_adj)
+dat3=cbind(x,k,y,z)
+dat3<-as.data.frame(dat3)
+
+dat<-rbind(dat2,dat3)
+dat$z=as.factor(dat$z)
+
+figure2_ME1<-ggplot(data = dat, aes(x = k, y = y, group = z, shape = z, linetype = z)) +
+  geom_line() + 
+  geom_point() +
+  scale_shape_manual(values = c('1' = 19, '2' = 15), labels = c("Reported", "Ultimate incurred")) + 
+  scale_linetype_manual(values = c('1' = "solid", '2' = "dotted"), labels = c("Reported", "Ultimate incurred")) +
+theme_classic() +
+xlab("Accident quarters") + 
+ylab("Number of data breaches") +
+  theme(legend.title=element_blank()) + scale_x_continuous(limits = c(2012, 2022), breaks = seq(2012, 2022, by = 1)) + theme(plot.title = element_text(color="black", size=14, face="bold")) + geom_smooth(method = "lm", se = FALSE, color = "black") #+ggtitle("Reported versus Ultimate incurred breaches (AQ 2013Q1 - 2020Q2, ME (0-249))")
+
+figure2_ME1
+```
+
+## Comparison across states
+
+```{r}
+
+# Adjust for quarters
+
+qtr_adj_IN1= 8
+qtr_adj_MT1 = 15
+qtr_adj_ME1 = 4
+
+## CA
+
+### quarterly growth rates of ultimate incurred breaches
+
+aq_comp_CA$state = "CA(>499)"
+aq_comp_CA$growth_rate = 0
+for (i in (min(aq_comp_CA$x)+1):max(aq_comp_CA$x)){
+  aq_comp_CA$growth_rate[i] = (aq_comp_CA$y[i] - aq_comp_CA$y[i-1])/aq_comp_CA$y[i-1]*100
+}
+
+### Ultimate incurred breaches by AQ, expressed as a percentage of the average over AQs 2015Q4 to 2016Q3"
+
+ref_16 = sum(aq_comp_CA$y[(min(aq_comp_CA$x)+qtr_adj_MT1):(min(aq_comp_CA$x)+qtr_adj_MT1+3)])/4
+aq_comp_CA$per_inc_16 = 0
+for (i in (min(aq_comp_CA$x)+1+qtr_adj_MT1):max(aq_comp_CA$x)){
+  aq_comp_CA$per_inc_16[i] = ((aq_comp_CA$y[i]/ref_16)-1)*100
+}
+
+## IN1
+
+### quarterly growth rates of ultimate incurred breaches
+
+aq_comp_IN1$state = "IN (0-249)"
+aq_comp_IN1$growth_rate = 0
+for (i in (min(aq_comp_IN1$x)+1):max(aq_comp_IN1$x)){
+  aq_comp_IN1$growth_rate[i-qtr_adj_IN1] = (aq_comp_IN1$y[i-qtr_adj_IN1] - aq_comp_IN1$y[i-1-qtr_adj_IN1])/aq_comp_IN1$y[i-1-qtr_adj_IN1]*100
+}
+
+### Ultimate incurred breaches by AQ, expressed as a percentage of the average over AQs 2015Q4 to 2016Q3"
+
+ref_16 = sum(aq_comp_IN1$y[(1+(qtr_adj_MT1 - qtr_adj_IN1)):(1+(qtr_adj_MT1 - qtr_adj_IN1)+3)])/4
+aq_comp_IN1$per_inc_16 = 0
+for (i in (min(aq_comp_IN1$x)+1+(qtr_adj_MT1 - qtr_adj_IN1)):max(aq_comp_IN1$x)){
+  aq_comp_IN1$per_inc_16[i-qtr_adj_IN1] = ((aq_comp_IN1$y[i-qtr_adj_IN1]/ref_16)-1)*100
+}
+
+## MT1
+
+### quarterly growth rates of ultimate incurred breaches
+
+aq_comp_MT1$state = "MT (0-249)"
+aq_comp_MT1$growth_rate = 0
+for (i in (min(aq_comp_MT1$x)+1):max(aq_comp_MT1$x)){
+  aq_comp_MT1$growth_rate[i-qtr_adj_MT1] = (aq_comp_MT1$y[i-qtr_adj_MT1] - aq_comp_MT1$y[i-1-qtr_adj_MT1])/aq_comp_MT1$y[i-1-qtr_adj_MT1]*100
+}
+
+### Ultimate incurred breaches by AQ, expressed as a percentage of the average over AQs 2015Q4 to 2016Q3"
+
+ref_16 = sum(aq_comp_MT1$y[1:4])/4
+aq_comp_MT1$per_inc_16 = 0
+for (i in (min(aq_comp_MT1$x)+1+(qtr_adj_MT1 - qtr_adj_MT1)):max(aq_comp_MT1$x)){
+  aq_comp_MT1$per_inc_16[i-qtr_adj_MT1] = ((aq_comp_MT1$y[i-qtr_adj_MT1]/ref_16)-1)*100
+}
+
+## ME1
+
+### quarterly growth rates of ultimate incurred breaches
+
+aq_comp_ME1$state = "ME (0-249)"
+aq_comp_ME1$growth_rate = 0
+for (i in (min(aq_comp_ME1$x)+1):max(aq_comp_ME1$x)){
+  aq_comp_ME1$growth_rate[i-qtr_adj_ME1] = (aq_comp_ME1$y[i-qtr_adj_ME1] - aq_comp_ME1$y[i-1-qtr_adj_ME1])/aq_comp_ME1$y[i-1-qtr_adj_ME1]*100
+}
+
+### Ultimate incurred breaches by AQ, expressed as a percentage of the average over AQs 2015Q4 to 2016Q3"
+
+ref_16 = sum(aq_comp_ME1$y[(1+(qtr_adj_MT1 - qtr_adj_ME1)):(1+(qtr_adj_MT1 - qtr_adj_ME1)+3)])/4
+aq_comp_ME1$per_inc_16 = 0
+for (i in (min(aq_comp_ME1$x)+1+(qtr_adj_MT1 - qtr_adj_ME1)):max(aq_comp_ME1$x)){
+  aq_comp_ME1$per_inc_16[i-qtr_adj_ME1] = ((aq_comp_ME1$y[i-qtr_adj_ME1]/ref_16)-1)*100
+}
+```
+
+### Quarterly growth rates of ultimate incurred breaches (AQ 2012Q1 - 2021Q4) 
+
+```{r,fig.align='center',warning=F}
+
+# Quarterly growth rates of ultimate incurred breaches (AQ 2012Q1 - 2021Q4)
+
+comp_growth_rate = rbind(subset(aq_comp_CA, select = c(k, state, growth_rate)), subset(aq_comp_IN1, select = c(k, state, growth_rate)), subset(aq_comp_MT1, select = c(k, state, growth_rate)), subset(aq_comp_ME1, select = c(k, state, growth_rate)))
+
+g1 = comp_growth_rate$growth_rate[which(comp_growth_rate$k == 2014.5 & comp_growth_rate$state == "CA(>499)")]
+
+annotation <- data.frame(
+   k = c(2014.5,2014.75,2016,2016.75,2017,2017.25,2020),
+   growth_rate = c(-52,110,110,-47,197,-58,150),
+   state = c("CA(>499)","ME (0-249)","MT (0-249)","MT (0-249)","IN (0-249)","IN (0-249)","IN (0-249)"),
+   label = c("2014Q3","2014Q4","2016Q1","2016Q4","2017Q1","2017Q2","2020Q1")
+)
+
+fig_comp_gr_qtr <- ggplot(data = comp_growth_rate, aes(x = k, y = growth_rate, group = state, shape = state, linetype = state)) +
+  geom_line() +
+  geom_point() +
+  theme_classic() +
+  xlab("Accident quarters") +
+  ylab("Percentage quarterly growth rates") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(limits = c(2012, 2022), breaks = seq(2012, 2022, by = 1)) +
+  theme(plot.title = element_text(color = "black", size = 12, face = "bold")) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  geom_text(data = annotation, aes(k = k, growth_rate = growth_rate, label = label), color = "black", size = 3, fontface = "bold")
+  # + ggtitle("Quarterly growth rates of ultimate incurred breaches (AQ 2012Q1 - 2021Q4)")
+
+fig_comp_gr_qtr
+```
+
+```{r}
+# mean and standard deviation of percentage quarterly growth rates are computed based on the largest common time periods observed among two or more states AQ 6-9; 10-16; 17-34; 35-38; 39-40
+
+# 6-9
+mean(aq_comp_CA$growth_rate[which(aq_comp_CA$x >=6 & aq_comp_CA$x <=9)])
+mean(aq_comp_ME1$growth_rate[which(aq_comp_ME1$x >=6 & aq_comp_ME1$x <=9)])
+
+sd(aq_comp_CA$growth_rate[which(aq_comp_CA$x >=6 & aq_comp_CA$x <=9)])
+sd(aq_comp_ME1$growth_rate[which(aq_comp_ME1$x >=6 & aq_comp_ME1$x <=9)])
+
+# 10-16
+mean(aq_comp_CA$growth_rate[which(aq_comp_CA$x >=10 & aq_comp_CA$x <=16)])
+mean(aq_comp_ME1$growth_rate[which(aq_comp_ME1$x >=10 & aq_comp_ME1$x <=16)])
+mean(aq_comp_IN1$growth_rate[which(aq_comp_IN1$x >=10 & aq_comp_IN1$x <=16)])
+
+sd(aq_comp_CA$growth_rate[which(aq_comp_CA$x >=10 & aq_comp_CA$x <=16)])
+sd(aq_comp_ME1$growth_rate[which(aq_comp_ME1$x >=10 & aq_comp_ME1$x <=16)])
+sd(aq_comp_IN1$growth_rate[which(aq_comp_IN1$x >=10 & aq_comp_IN1$x <=16)])
+
+# 17-34
+mean(aq_comp_CA$growth_rate[which(aq_comp_CA$x >=17 & aq_comp_CA$x <=34)])
+mean(aq_comp_ME1$growth_rate[which(aq_comp_ME1$x >=17 & aq_comp_ME1$x <=34)])
+mean(aq_comp_IN1$growth_rate[which(aq_comp_IN1$x >=17 & aq_comp_IN1$x <=34)])
+mean(aq_comp_MT1$growth_rate[which(aq_comp_MT1$x >=17 & aq_comp_MT1$x <=34)])
+
+sd(aq_comp_CA$growth_rate[which(aq_comp_CA$x >=17 & aq_comp_CA$x <=34)])
+sd(aq_comp_ME1$growth_rate[which(aq_comp_ME1$x >=17 & aq_comp_ME1$x <=34)])
+sd(aq_comp_IN1$growth_rate[which(aq_comp_IN1$x >=17 & aq_comp_IN1$x <=34)])
+sd(aq_comp_MT1$growth_rate[which(aq_comp_MT1$x >=17 & aq_comp_MT1$x <=34)])
+
+# 35-38
+mean(aq_comp_CA$growth_rate[which(aq_comp_CA$x >=35 & aq_comp_CA$x <=38)])
+mean(aq_comp_IN1$growth_rate[which(aq_comp_IN1$x >=35 & aq_comp_IN1$x <=38)])
+mean(aq_comp_MT1$growth_rate[which(aq_comp_MT1$x >=35 & aq_comp_MT1$x <=38)])
+
+sd(aq_comp_CA$growth_rate[which(aq_comp_CA$x >=35 & aq_comp_CA$x <=38)])
+sd(aq_comp_IN1$growth_rate[which(aq_comp_IN1$x >=35 & aq_comp_IN1$x <=38)])
+sd(aq_comp_MT1$growth_rate[which(aq_comp_MT1$x >=35 & aq_comp_MT1$x <=38)])
+
+# 39-40
+mean(aq_comp_CA$growth_rate[which(aq_comp_CA$x >=39 & aq_comp_CA$x <=40)])
+mean(aq_comp_MT1$growth_rate[which(aq_comp_MT1$x >=39 & aq_comp_MT1$x <=40)])
+
+sd(aq_comp_CA$growth_rate[which(aq_comp_CA$x >=39 & aq_comp_CA$x <=40)])
+sd(aq_comp_MT1$growth_rate[which(aq_comp_MT1$x >=39 & aq_comp_MT1$x <=40)])
+```
+
+### Ultimate incurred breaches by AQ, expressed as a percentage of the average over AQs 2015Q4 to 2016Q3"
+
+```{r,fig.align='center',warning=F}
+
+comp_per_inc_16 = rbind(subset(aq_comp_CA, x>=16, select = c(x, k, state, per_inc_16)), subset(aq_comp_ME1, x>=16, select = c(x, k, state, per_inc_16)), subset(aq_comp_IN1, x>=16, select = c(x, k, state, per_inc_16)), subset(aq_comp_MT1, select = c(x, k, state, per_inc_16)))
+
+fig_comp_per_inc_16_qtr <- ggplot(data = comp_per_inc_16, aes(x = k, y = per_inc_16, group = state, shape = state, linetype = state)) +
+  geom_line() +
+  geom_point() +
+  theme_classic() +
+  xlab("Accident quarters") + 
+  ylab("Percentage") +
+  theme(
+    legend.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, color = "black", size = 12, face = "bold")
+  ) +
+  scale_x_continuous(limits = c(2015, 2022), breaks = seq(2015, 2022, by = 1))
+  # + ggtitle("Ultimate incurred breaches by AQ, expressed as a percentage of the average over AQs 2015Q4 to 2016Q3")
+
+fig_comp_per_inc_16_qtr
+```
+
+
