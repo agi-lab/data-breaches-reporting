@@ -1,0 +1,2435 @@
+---
+title: "GAM output and diagnostics"
+output:
+  html_document:
+    toc: yes
+    toc_depth: '4'
+    df_print: paged
+    number_sections: yes
+  bookdown::pdf_document2:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 4
+    number_sections: yes
+    fig_caption: yes
+fontsize: 12pt
+always_allow_html: yes
+---
+
+```{r, include=FALSE}
+# load packages
+library(readr);library(astsa);library(knitr);library(ggplot2);library(TTR);library(SynthETIC);library(data.table);library(ModelMetrics);library(plotly);library(lubridate);library(stringi);library(FluMoDL);library(ChainLadder);library(MASS);library(AER);library(writexl);library(readxl);library(bbmle);library(MuMIn);library(boot);library(pheatmap);library(gplots);library(kableExtra);library(bookdown);library(ggpubr);library(xtable);library(stargazer);library(forcats);library(rgl);library(htmlwidgets);library("RColorBrewer");library(ggplot2);library(ggplotify);library(pheatmap);library(patchwork)
+libs<- c ("tm", "plyr", "class", "SnowballC", "dplyr", "caret", "corrplot", "beepr","RWeka","e1071","ggplot2", "datasets", "maps","plotly", "wordcloud")
+lapply(libs, library, character.only=T)
+```
+
+# GAM
+
+Accident quarter 1 corresponds to 2020Q1 and accident quarter 2 corresponds to 2021Q4.
+
+```{r}
+
+# load upper triangles for all states
+upper <- read_csv("qtr_upper_triangles_data.csv",
+    col_types = cols(i_fac = col_factor(levels = c()),
+        all = col_factor(levels = c())))
+
+# create co-variates
+
+############## log(j+1)
+upper$log_j_plus_1=log(upper$j+1)
+
+############## indicator j<=4
+upper$ind_j_less4=ifelse((upper$j<=4)&(upper$j>=1),1,0)
+
+############## linear splines for AQs
+upper$max_0_and_i_minus_11=ifelse(upper$i<11,0,upper$i-11)
+upper$max_0_and_11_minus_i=ifelse(upper$i>11,0,11-upper$i)
+upper$max_0_and_i_minus_21=ifelse(upper$i<21,0,upper$i-21)
+upper$max_0_and_i_minus_34=ifelse(upper$i<34,0,upper$i-34)
+
+############## inc_j1, inc_j1_j2, inc_j2_j5
+
+upper$inc_j1=ifelse(upper$j == 1 | upper$j == 2 | upper$j == 5, 1, 0)
+upper$inc_j1_j2=ifelse(upper$j == 2 | upper$j == 5, 1, 0)
+upper$inc_j2_j5=ifelse(upper$j == 5, 1, 0)
+
+upper$ind_OR250_IN250_MT250=upper$OR250+upper$IN250+upper$MT250
+
+upper$ind_IN1_MT1=upper$IN1+upper$MT1
+upper$ind_DE500_ND250=upper$DE500+upper$ND250
+upper$ind_ND500_ME250=upper$ND500+upper$ME250
+upper$ind_IN500_MT500_ME500_WA500_OR250_IN250_MT250=upper$IN500+upper$MT500+upper$ME500+upper$WA500+upper$OR250+upper$IN250+upper$MT250
+
+upper$ind_IN500_IN250=upper$IN500+upper$IN250
+upper$ind_ND500_WA500_MT250_ME250=upper$ND500+upper$WA500+upper$MT250+upper$ME250
+
+############## j 
+
+upper$ind_IN500_MT500_ME500_ND500_WA_500_OR250_IN250_MT250_ME250_ND250=upper$IN500+upper$MT500+upper$ME500+upper$ND500+upper$WA500+upper$OR250+upper$IN250+upper$MT250+upper$ME250+upper$ND250
+
+############## min(j,6)
+
+upper$min_j_6=ifelse(upper$j>6,6,upper$j)
+
+############## max_0_and_j_minus_6
+
+upper$max_0_and_j_minus_6=ifelse(upper$j<6,0,upper$j-6)
+
+upper$ind_IN500_MT500_ND500_WA_500_OR250_IN250_ME250_ND250=upper$IN500+upper$MT500+upper$ND500+upper$WA500+upper$OR250+upper$IN250+upper$ME250+upper$ND250
+
+upper$ind_IN1_ME1=upper$IN1+upper$ME1
+
+############## ind_c_22; ind_c_28
+
+upper$ind_c_22=ifelse(upper$c==22,1,0)
+upper$ind_c_28=ifelse(upper$c==28,1,0)
+
+upper$ind_c_22_WA500_28_WA500_OR250=upper$ind_c_22*upper$WA500+upper$ind_c_28*upper$WA500+upper$ind_c_28*upper$OR250
+
+############## ind_i_
+
+upper$ind_i_17=ifelse(upper$i==17,1,0)
+upper$ind_i_21=ifelse(upper$i==21,1,0)
+upper$ind_i_24=ifelse(upper$i==24,1,0)
+upper$ind_i_25=ifelse(upper$i==25,1,0)
+upper$ind_i_14=ifelse(upper$i==14,1,0)
+upper$ind_i_15=ifelse(upper$i==15,1,0)
+upper$ind_i_18=ifelse(upper$i==18,1,0)
+upper$ind_i_20=ifelse(upper$i==20,1,0)
+upper$ind_i_29=ifelse(upper$i==29,1,0)
+upper$ind_i_32=ifelse(upper$i==32,1,0)
+upper$ind_i_7=ifelse(upper$i==7,1,0)
+upper$ind_i_12=ifelse(upper$i==12,1,0)
+upper$ind_i_21=ifelse(upper$i==21,1,0)
+upper$ind_i_22=ifelse(upper$i==22,1,0)
+upper$ind_i_23=ifelse(upper$i==23,1,0)
+upper$ind_i_19=ifelse(upper$i==19,1,0)
+upper$ind_i_27=ifelse(upper$i==27,1,0)
+upper$ind_i_10=ifelse(upper$i==10,1,0)
+upper$ind_i_16=ifelse(upper$i==16,1,0)
+
+upper$ind_i_15_16=ifelse(upper$i %in% c(15,16), 1, 0)
+
+upper$ind_i_17_or_18=upper$ind_i_17 + upper$ind_i_18
+upper$ind_i_21_or_22_or_23=upper$ind_i_21 + upper$ind_i_22 + upper$ind_i_23
+
+upper$ind_i_IN1_14_18=upper$IN1*upper$ind_i_14+upper$IN1*upper$ind_i_18
+upper$ind_i_IN1_20_32=upper$IN1*upper$ind_i_20+upper$IN1*upper$ind_i_32
+
+############## ind_c_
+upper$ind_c_12=ifelse(upper$c==12,1,0)
+upper$ind_c_17=ifelse(upper$c==17,1,0)
+upper$ind_c_19=ifelse(upper$c==19,1,0)
+upper$ind_c_32=ifelse(upper$c==32,1,0)
+upper$ind_c_24=ifelse(upper$c==24,-1,0)
+upper$ind_c_25=ifelse(upper$c==25,1,0)
+upper$ind_c_24_25_opposite=upper$ind_c_24 +upper$ind_c_25
+upper$ind_c_26=ifelse(upper$c==26,-1,0)
+upper$ind_c_27=ifelse(upper$c==27,1,0)
+upper$ind_c_26_27_opposite=upper$ind_c_26 +upper$ind_c_27
+upper$ind_c_28=ifelse(upper$c==28,-1,0)
+upper$ind_c_29=ifelse(upper$c==29,1,0)
+upper$ind_c_28_29_opposite=upper$ind_c_28 +upper$ind_c_29
+
+############## Interaction terms
+
+upper$ind_j_1=ifelse(upper$j==1,1,0)
+upper$ind_j_2=ifelse(upper$j==2,1,0)
+upper$ind_j_3=ifelse(upper$j==3,1,0)
+upper$ind_j_4=ifelse(upper$j==4,1,0)
+upper$ind_j_5=ifelse(upper$j==5,1,0)
+
+upper$ind_i_ge_24=ifelse(upper$i>=24,1,0)
+upper$max_0_and_i_minus_24=ifelse(upper$i<24,0,upper$i-24)
+upper$max_0_and_i_minus_23=ifelse(upper$i<23,0,upper$i-23)
+upper$ind_j_5_times_ind_i_17=upper$ind_j_5*upper$ind_i_17
+upper$ind_j_5_times_ind_i_19=upper$ind_j_5*upper$ind_i_19
+upper$ind_j_5_times_ind_i_24=upper$ind_j_5*upper$ind_i_24
+
+############## Setting segment identifiers with states
+
+upper$ind_i_ME1_12_17_18_21_22_23=upper$ME1*upper$ind_i_17_or_18+upper$ME1*upper$ind_i_21_or_22_or_23+upper$ME1*upper$ind_i_12
+
+upper$MT1_ME1=upper$MT1+upper$ME1
+
+upper$ind_j_5_times_ind_i_17_WA500_OR250=upper$WA500*upper$ind_j_5_times_ind_i_17+upper$OR250*upper$ind_j_5_times_ind_i_17
+
+upper$ind_j5_ind_i17_IN500_ind_j5_ind_i19_IN500_WA500_OR250_ind_j5_ind_i24_IN500=upper$IN500*upper$ind_j_5_times_ind_i_17+upper$IN500*upper$ind_j_5_times_ind_i_19+upper$WA500*upper$ind_j_5_times_ind_i_19+upper$OR250*upper$ind_j_5_times_ind_i_19+upper$IN500*upper$ind_j_5_times_ind_i_24
+
+upper$ind_j_5_times_ind_i_19_IN1_MT1_ME1=upper$IN1*upper$ind_j_5_times_ind_i_19+upper$MT1*upper$ind_j_5_times_ind_i_19+upper$ME1*upper$ind_j_5_times_ind_i_19
+
+###### Post-covid, data_seg*AQ interactions
+
+upper$i_fac=ifelse(upper$i <= 32, "le32", upper$i)
+upper$i_fac=as.factor(upper$i_fac)
+upper$i_fac <- relevel(upper$i_fac, ref = "le32")
+
+###### Post-covid, simplifications
+
+upper$ind_i_ge_33=ifelse(upper$i >= 33, 1, 0)
+upper$ind_i_33=ifelse(upper$i == 33, 1, 0)
+upper$ind_i_34=ifelse(upper$i == 34, 1, 0)
+upper$max_0_and_i_minus_34=ifelse(upper$i<34,0,upper$i-34)
+
+upper$IN500_ND500_ind_i_ge_33_ND500_ind_i_33=(upper$IN500+upper$ND500)*upper$ind_i_ge_33+upper$ND500*upper$ind_i_33
+
+upper$WA500_OR250=upper$WA500+upper$OR250
+upper$MT250_ME250=upper$MT250+upper$ME250
+
+upper$ind_i_37=ifelse(upper$i == 37, 1, 0)
+upper$ind_i_38=ifelse(upper$i==38,1,0)
+upper$ind_c_36=ifelse(upper$c==36,1,0)
+upper$ind_c_30=ifelse(upper$c==30,1,0)
+upper$ind_c_35=ifelse(upper$c==35,1,0)
+upper$ind_c_34=ifelse(upper$c==34,1,0)
+
+upper$ind_i_ge_21=ifelse(upper$i>=21,1,0)
+upper$max_0_and_i_minus_21=ifelse(upper$i<21,0,upper$i-21)
+upper$ind_c_30_31=ifelse(upper$c == 30 | upper$c == 31, 1, 0)
+
+# zero weights
+
+my_triangle_data <- upper
+
+upper=upper[-which((upper$IN1==1)&(upper$i==33)),]
+upper=upper[-which((upper$MT1==1)&(upper$i==33)),]
+upper=upper[-which((upper$WA500==1)&(upper$i==33)),]
+upper=upper[-which((upper$OR250==1)&(upper$i==17)),]
+upper=upper[-which((upper$WA500==1)&(upper$i==17)),]
+upper=upper[-which((upper$CA500==1)&(upper$i==26)),]
+upper=upper[-which((upper$CA500==1)&(upper$i==32)),]
+upper=upper[-which((upper$CA500==1)&(upper$i==33)),]
+
+############## GAM 
+
+poi=glm(Xij ~ -1 + all + all:i + all:I(i^2) + CA500:ind_j_1 + CA500:log_j_plus_1 + CA500:log_j_plus_1:ind_j_less4 +CA500:ind_j_less4:log_j_plus_1:max_0_and_11_minus_i
++CA500:ind_j_less4:log_j_plus_1:j:max_0_and_i_minus_11 + CA500:ind_i_16:ind_j_4 + CA500:ind_i_19:ind_j_5 + CA500:ind_i_10 + CA500:ind_i_15_16 + CA500:ind_i_21 + CA500:ind_c_17 + CA500:ind_c_35 + CA500:ind_i_ge_33 + CA500:max_0_and_i_minus_34 + +CA500:ind_j_less4:log_j_plus_1:j:max_0_and_i_minus_21 + CA500:ind_j_1:max_0_and_i_minus_21 + CA500:ind_i_38 +ind_OR250_IN250_MT250:inc_j1+IN500:inc_j1+MT500:inc_j1+ME500:inc_j1+ND500:inc_j1+WA500:inc_j1+DE500:inc_j1+ME250:inc_j1+ND250:inc_j1+IN1:inc_j1+MT1:inc_j1+ME1:inc_j1+ind_IN1_MT1:inc_j1_j2+ind_DE500_ND250:inc_j1_j2+ind_ND500_ME250:inc_j1_j2+ind_IN500_MT500_ME500_WA500_OR250_IN250_MT250:inc_j1_j2+ME1:inc_j1_j2 + ind_IN500_IN250:inc_j2_j5 + ind_ND500_WA500_MT250_ME250:inc_j2_j5 + MT500:inc_j2_j5 + OR250:inc_j2_j5 + ND250:inc_j2_j5 +IN1:inc_j2_j5 + MT1:inc_j2_j5 + ME1:inc_j2_j5 + ind_IN500_MT500_ME500_ND500_WA_500_OR250_IN250_MT250_ME250_ND250:j + DE500:j + IN1:min_j_6 + MT1:min_j_6 + ME1:min_j_6 + ind_IN500_MT500_ND500_WA_500_OR250_IN250_ME250_ND250:max_0_and_j_minus_6 + ME500:max_0_and_j_minus_6 + DE500:max_0_and_j_minus_6 + MT250:max_0_and_j_minus_6  + ind_IN1_ME1:max_0_and_j_minus_6 + MT1:max_0_and_j_minus_6 + ind_c_22_WA500_28_WA500_OR250 + IN1:max_0_and_i_minus_11 + ME1:max_0_and_i_minus_11 + IN1:ind_i_17 + MT1:ind_i_17 + IN1:ind_i_21 + MT1:ind_i_21 + IN1:ind_i_24 + IN1:ind_i_25 + ind_i_IN1_14_18 + IN1:ind_i_15 + ind_i_IN1_20_32 + IN1:ind_i_29 + IN1:ind_c_12 + IN1:ind_c_19 + IN1:ind_c_32 + IN1:ind_c_24_25_opposite + IN1:ind_j_2:ind_i_ge_24 + ind_i_ME1_12_17_18_21_22_23 + ME1:ind_i_7 + ME1:ind_c_26_27_opposite + ME1:ind_c_28_29_opposite + IN1:ind_j_3:ind_i_ge_24 + MT1:ind_j_3:ind_i_ge_24 + ME1:ind_j_3:ind_i_ge_24 + IN1:ind_i_ge_24:ind_j_4 + MT1:ind_i_ge_24:ind_j_4 + ME1:ind_i_ge_24:ind_j_4 + MT1:ind_j_5:ind_i_ge_24 + ME1:ind_j_5:ind_i_ge_24 + MT1_ME1:ind_j_2:max_0_and_i_minus_24 + IN1:ind_j_3:max_0_and_i_minus_24 + MT1:ind_j_3:max_0_and_i_minus_24 + ME1:ind_j_3:max_0_and_i_minus_24 + IN1:j:max_0_and_i_minus_24 + MT1:ind_j_4:max_0_and_i_minus_24 + ME1:ind_j_4:max_0_and_i_minus_24 + ME1:ind_j_5:max_0_and_i_minus_24 + MT1:j:ind_i_ge_24 + ME1:j:ind_i_ge_24 + IN1:max_0_and_j_minus_6:max_0_and_i_minus_24 + ME1:max_0_and_j_minus_6:max_0_and_i_minus_23 + IN1:ind_j_5_times_ind_i_17 + MT1:ind_j_5_times_ind_i_17 + ME1:ind_j_5_times_ind_i_17 + ind_j5_ind_i17_IN500_ind_j5_ind_i19_IN500_WA500_OR250_ind_j5_ind_i24_IN500 + ind_j_5_times_ind_i_19_IN1_MT1_ME1 + WA500:ind_j_5:ind_i_25 + MT1:ind_j_1:ind_i_24 + MT1:ind_j_5:ind_i_27 + ME1:ind_j_4:ind_i_19 + IN250:ind_i_ge_33 + ND250:ind_i_ge_33 + IN1:ind_i_ge_33 + MT1:ind_i_ge_33 + ME1:ind_i_ge_33 + IN1:ind_i_34 + IN1:max_0_and_i_minus_34 + IN250:ind_i_33 + DE500:ind_i_34 + IN500_ND500_ind_i_ge_33_ND500_ind_i_33 + WA500_OR250:ind_i_ge_33 + MT250_ME250:ind_i_ge_33 + OR250:ind_i_37 + OR250:ind_c_34 + IN1:ind_c_36 + MT1:ind_c_30 + MT1:ind_c_35 + WA500:ind_c_35 + ME1:ind_i_ge_24:ind_j_1, family = quasipoisson(link = "log"), data = upper)
+
+summary(poi)
+
+# stargazer(poi,type="html", dep.var.labels=c("CA and supermodel"),
+#           digits=4, align=TRUE,
+#           intercept.bottom=FALSE,
+#           star.cutoffs = c(0.1,0.05,0.01),
+#           out= "test.html")
+```
+
+# Heatmaps
+
+The deviance residuals are defined as:
+
+$$
+r_{ij}=\operatorname{sgn}\left(y-\hat{\mu}_{ij}\right) \cdot \sqrt{2 \cdot y_{ij} \cdot \log \left(\frac{y_{ij}}{\hat{\mu}_{ij}}\right)-\left(y_{ij}-\hat{\mu}_{ij}\right)}
+$$
+where
+
+- $y_{ij}$ is the outcome
+- $\hat{\mu}_{ij}$ is the estimate of the model
+
+## CA (>=500 state residents affected)
+
+The codes in this section are commented; similar codes are applied in subsequent sections with differences only in adjusting for different time periods of investigation.  
+
+
+```{r}
+
+# compute fitted values
+resid=my_triangle_data[which(my_triangle_data$all=="CA500"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+# compute deviance residuals 
+
+poisson.dev <- function (y, mu) 
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+# Heat map for deviance residuals (accident quarters vs development quarters)
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# compute the ratio of actual to fitted number of breaches by development quarters; removed cells belonged to accident quarters 26, 32, 33 from diagnostics as they have been assigned zero weights in the GAM
+
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  temp=resid[which(resid$dev.period==i),]
+  if (length(temp$Actual[which(temp$origin.period==(26-qtr_adj))])==0){
+    hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+    hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+    }
+  else {
+    hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])-temp$Actual[which(temp$origin.period==(26-qtr_adj))]
+    hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])-temp$fitted.value[which(temp$origin.period==(26-qtr_adj))]
+    }
+}
+
+for (i in 1:max(resid$dev.period)){
+  temp=resid[which(resid$dev.period==i),]
+  if (length(temp$Actual[which(temp$origin.period==(32-qtr_adj))])==0){
+    hi1[i]=hi1[i]
+    hi2[i]=hi2[i]
+    }
+  else {
+    hi1[i]=hi1[i]-temp$Actual[which(temp$origin.period==(32-qtr_adj))]
+    hi2[i]=hi2[i]-temp$fitted.value[which(temp$origin.period==(32-qtr_adj))]
+    }
+}
+
+for (i in 1:max(resid$dev.period)){
+  temp=resid[which(resid$dev.period==i),]
+  if (length(temp$Actual[which(temp$origin.period==(33-qtr_adj))])==0){
+    hi1[i]=hi1[i]
+    hi2[i]=hi2[i]
+    }
+  else {
+    hi1[i]=hi1[i]-temp$Actual[which(temp$origin.period==(33-qtr_adj))]
+    hi2[i]=hi2[i]-temp$fitted.value[which(temp$origin.period==(33-qtr_adj))]
+    }
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# compute the ratio of actual to fitted number of breaches by accident quarters
+
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# compute the ratio of actual to fitted number of breaches by calendar quarters; removed cells belonged to AQ 26, 32, 33 from diagnostics as they have been assigned zero weights in the GAM
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  temp3=resid[which(resid$cal.period==i),]
+  if (length(temp3$Actual[which(temp3$origin.period==(26-qtr_adj))])==0){
+    hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+    hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+    }
+  else {
+    hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])-temp3$Actual[which(temp3$origin.period==(26-qtr_adj))]
+    hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])-temp3$fitted.value[which(temp3$origin.period==(26-qtr_adj))]
+    }
+}
+
+for (i in 1:max(resid$cal.period)){
+  temp3=resid[which(resid$cal.period==i),]
+  if (length(temp3$Actual[which(temp3$origin.period==(32-qtr_adj))])==0){
+    hi1[i]=hi1[i]
+    hi2[i]=hi2[i]
+    }
+  else {
+    hi1[i]=hi1[i]-temp3$Actual[which(temp3$origin.period==(32-qtr_adj))]
+    hi2[i]=hi2[i]-temp3$fitted.value[which(temp3$origin.period==(32-qtr_adj))]
+    }
+}
+
+for (i in 1:max(resid$cal.period)){
+  temp3=resid[which(resid$cal.period==i),]
+  if (length(temp3$Actual[which(temp3$origin.period==(33-qtr_adj))])==0){
+    hi1[i]=hi1[i]
+    hi2[i]=hi2[i]
+    }
+  else {
+    hi1[i]=hi1[i]-temp3$Actual[which(temp3$origin.period==(33-qtr_adj))]
+    hi2[i]=hi2[i]-temp3$fitted.value[which(temp3$origin.period==(33-qtr_adj))]
+    }
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+\newpage
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+
+quarter_names <- paste0("Q", 1:10)
+colnames(test2) <- quarter_names
+rownames(temp2) <-quarter_names
+
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+latex_code = kbl(test2, format = "latex", booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+
+quarters <- seq(as.Date("2012-01-01"), as.Date("2021-12-31"), by = "3 months")
+quarter_names <- paste0(format(quarters, "%Y"), "Q", quarter(quarters))
+colnames(test) <- quarter_names
+rownames(temp) <- quarter_names
+
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+latex_code <- kbl(test, format = "latex", booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=7, cellwidth = 14,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+
+colnames(test3) <- quarter_names
+rownames(temp3) <- quarter_names
+
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+latex_code <- kbl(test3, format = "latex", booktabs = T,caption = "Sum of events by calendar quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=7, cellwidth = 14,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r}
+p1=pheatmap(temp2,legend = FALSE,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+
+p2=pheatmap(temp, legend = FALSE,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=7, cellwidth = 14,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+
+p3=pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=7, cellwidth = 14,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+
+p1<-as.ggplot(p1)
+p2<-as.ggplot(p2)
+p3<-as.ggplot(p3)
+
+ggarrange(p1, p2, p3, ncol=3, widths = c(1, -0.1, 1), common.legend = TRUE, legend = "bottom")
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+rownames(hm) <- quarter_names
+colnames(hm) <- paste0("DQ", 1:40)
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=6.9, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0.5,-0.5,1,2,3,4))
+```
+
+\newpage
+## IN (>=500 state residents affected)
+
+```{r}
+
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="IN500"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# A/E ratio table - DQ
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 8,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=7.5, cellwidth = 16,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+## MT (>=500 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="MT500"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# A/E ratio table - DQ
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=12, cellwidth = 18,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=9, cellwidth = 16,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+## ME (>=500 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="ME500"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# A/E ratio table - DQ
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 8,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=9, cellwidth = 16,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+##  ND (>=500 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="ND500"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# A/E ratio table - DQ
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=20, cellwidth = 20,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=14, cellwidth = 20,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=12, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+##  WA (>=500 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="WA500"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# compute the ratio of actual to fitted number of breaches by development quarters; removed cells belonged to accident quarters 17 and 33 from diagnostics as they have been assigned zero weights in the GAM
+
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  temp=resid[which(resid$dev.period==i),]
+  if (length(temp$Actual[which(temp$origin.period==(33-qtr_adj))])==0){
+    hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+    hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+    }
+  else {
+    hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])-temp$Actual[which(temp$origin.period==(33-qtr_adj))]
+    hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])-temp$fitted.value[which(temp$origin.period==(33-qtr_adj))]
+    }
+}
+
+for (i in 1:max(resid$dev.period)){
+  temp=resid[which(resid$dev.period==i),]
+  if (length(temp$Actual[which(temp$origin.period==(17-qtr_adj))])==0){
+    hi1[i]=hi1[i]
+    hi2[i]=hi2[i]
+    }
+  else {
+    hi1[i]=hi1[i]-temp$Actual[which(temp$origin.period==(17-qtr_adj))]
+    hi2[i]=hi2[i]-temp$fitted.value[which(temp$origin.period==(17-qtr_adj))]
+    }
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  temp3=resid[which(resid$cal.period==i),]
+  if (length(temp3$Actual[which(temp3$origin.period==(33-qtr_adj))])==0){
+    hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+    hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+    }
+  else {
+    hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])-temp3$Actual[which(temp3$origin.period==(33-qtr_adj))]
+    hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])-temp3$fitted.value[which(temp3$origin.period==(33-qtr_adj))]
+    }
+}
+
+for (i in 1:max(resid$cal.period)){
+  temp3=resid[which(resid$cal.period==i),]
+  if (length(temp3$Actual[which(temp3$origin.period==(17-qtr_adj))])==0){
+    hi1[i]=hi1[i]
+    hi2[i]=hi2[i]
+    }
+  else {
+    hi1[i]=hi1[i]-temp3$Actual[which(temp3$origin.period==(17-qtr_adj))]
+    hi2[i]=hi2[i]-temp3$fitted.value[which(temp3$origin.period==(17-qtr_adj))]
+    }
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+# test[,-(33-qtr_adj)]
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=12, cellwidth = 18,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=10, cellwidth = 20,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+## DE (>=500 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="DE500"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# A/E ratio table - DQ
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=20, cellwidth = 20,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=14, cellwidth = 20,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=12, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+##  OR (>=250 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="OR250"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# compute the ratio of actual to fitted number of breaches by development quarters; removed cells belonged to accident quarter 17 from diagnostics as they have been assigned zero weights in the GAM
+
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  temp=resid[which(resid$dev.period==i),]
+  if (length(temp$Actual[which(temp$origin.period==(17-qtr_adj))])==0){
+    hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+    hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+    }
+  else {
+    hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])-temp$Actual[which(temp$origin.period==(17-qtr_adj))]
+    hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])-temp$fitted.value[which(temp$origin.period==(17-qtr_adj))]
+    }
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  temp3=resid[which(resid$cal.period==i),]
+  if (length(temp3$Actual[which(temp3$origin.period==(17-qtr_adj))])==0){
+    hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+    hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+    }
+  else {
+    hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])-temp3$Actual[which(temp3$origin.period==(17-qtr_adj))]
+    hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])-temp3$fitted.value[which(temp3$origin.period==(17-qtr_adj))]
+    }
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=12, cellwidth = 18,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=9, cellwidth = 16,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+
+\newpage
+## IN (250-499 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="IN250"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# A/E ratio table - DQ
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 8,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=7.5, cellwidth = 16,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+## MT (250-499 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="MT250"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# A/E ratio table - DQ
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=12, cellwidth = 18,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=9, cellwidth = 16,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+## ME (250-499 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="ME250"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# A/E ratio table - DQ
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 8,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=9, cellwidth = 16,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+##  ND (250-499 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="ND250"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# A/E ratio table - DQ
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=20, cellwidth = 20,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=14, cellwidth = 20,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=12, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+## IN (0-249 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="IN1"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# compute the ratio of actual to fitted number of breaches by development quarters; removed cells belonged to accident quarter 33 from diagnostics as they have been assigned zero weights in the GAM
+
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  temp=resid[which(resid$dev.period==i),]
+  if (length(temp$Actual[which(temp$origin.period==(33-qtr_adj))])==0){
+    hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+    hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+    }
+  else {
+    hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])-temp$Actual[which(temp$origin.period==(33-qtr_adj))]
+    hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])-temp$fitted.value[which(temp$origin.period==(33-qtr_adj))]
+    }
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  temp3=resid[which(resid$cal.period==i),]
+  if (length(temp3$Actual[which(temp3$origin.period==(33-qtr_adj))])==0){
+    hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+    hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+    }
+  else {
+    hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])-temp3$Actual[which(temp3$origin.period==(33-qtr_adj))]
+    hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])-temp3$fitted.value[which(temp3$origin.period==(33-qtr_adj))]
+    }
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 8,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=7.5, cellwidth = 16,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+## MT (0-249 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="MT1"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# compute the ratio of actual to fitted number of breaches by development quarters; removed cells belonged to accident quarter 33 from diagnostics as they have been assigned zero weights in the GAM
+
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  temp=resid[which(resid$dev.period==i),]
+  if (length(temp$Actual[which(temp$origin.period==(33-qtr_adj))])==0){
+    hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+    hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+    }
+  else {
+    hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])-temp$Actual[which(temp$origin.period==(33-qtr_adj))]
+    hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])-temp$fitted.value[which(temp$origin.period==(33-qtr_adj))]
+    }
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  temp3=resid[which(resid$cal.period==i),]
+  if (length(temp3$Actual[which(temp3$origin.period==(33-qtr_adj))])==0){
+    hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+    hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+    }
+  else {
+    hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])-temp3$Actual[which(temp3$origin.period==(33-qtr_adj))]
+    hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])-temp3$fitted.value[which(temp3$origin.period==(33-qtr_adj))]
+    }
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=12, cellwidth = 18,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=9, cellwidth = 16,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
+
+\newpage
+## ME (0-249 state residents affected)
+
+```{r}
+## create heat map - incremental
+resid=my_triangle_data[which(my_triangle_data$all=="ME1"),]
+resid$fitted.value=predict(poi, newdata = resid, type = "response")
+
+colnames(resid)[1:4]=c("Actual","origin.period","dev.period","cal.period")
+
+poisson.dev <- function (y, mu) 
+    # unit deviance
+    2 * (y * log(ifelse(y == 0, 1, y/mu)) - (y - mu))
+res.dev3 <- sqrt(poisson.dev(resid$Actual, resid$fitted.value)) * 
+        ifelse(resid$Actual > resid$fitted.value, 1, -1)
+resid$deviance_resid=res.dev3
+
+qtr_adj=min(resid$origin.period)-1
+resid$origin.period=resid$origin.period-qtr_adj
+resid$cal.period=resid$cal.period-qtr_adj
+
+# Heat map for deviance residuals (origin.period vs dev.period)
+hm=array(0,c(max(resid$origin.period),max(resid$dev.period)))
+for (i in 1:max(resid$origin.period)){
+  temp=resid[which(resid$origin.period==i),]
+  for (j in 1:max(resid$dev.period)){
+    if (length(temp$deviance_resid[which(temp$dev.period==j)])==0){
+      hm[i,j]=NA
+    }
+    else {
+      hm[i,j]=temp$deviance_resid[which(temp$dev.period==j)]
+    }
+    
+  }
+}
+
+hi1=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+hi2=1:max(resid$dev.period)
+rownames(hm)<-hi1
+colnames(hm)<-hi2
+
+# A/E ratio table - DQ
+hi1=rep(0,max(resid$dev.period))
+hi2=hi1
+for (i in 1:max(resid$dev.period)){
+  hi1[i]=sum(resid$Actual[which(resid$dev.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$dev.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+test2=test[,1:10]
+rownames(test2)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+colnames(test2)=c("Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Q9","Q10")
+
+temp2=as.data.frame(zscore[1:10])
+rownames(temp2)=1:10
+colnames(temp2)="DQ"
+
+# A/E ratio table - AQ
+hi1=rep(0,max(resid$origin.period))
+hi2=hi1
+for (i in 1:max(resid$origin.period)){
+  hi1[i]=sum(resid$Actual[which(resid$origin.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$origin.period==i)])
+}
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test=rbind(hi1,hi2,AE,zscore)
+test=as.data.frame(test)
+rownames(test)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$origin.period)+qtr_adj):(max(resid$origin.period)+qtr_adj)
+colnames(test)=c(hi)
+
+temp=as.data.frame(zscore)
+rownames(temp)=hi
+colnames(temp)="AQ"
+
+# A/E ratio table - CQ
+
+hi1=rep(0,max(resid$cal.period))
+hi2=hi1
+
+for (i in 1:max(resid$cal.period)){
+  hi1[i]=sum(resid$Actual[which(resid$cal.period==i)])
+  hi2[i]=sum(resid$fitted.value[which(resid$cal.period==i)])
+}
+
+AE=round(hi1/hi2,digits = 2)
+zscore=round((hi1-hi2)/sqrt(hi2),digits = 2)
+hi2=round(hi2,digits = 2)
+test3=rbind(hi1,hi2,AE,zscore)
+test3=as.data.frame(test3)
+
+rownames(test3)=c("Actual Sum","Fitted Sum","A/E Ratio","Z score")
+
+hi=(min(resid$cal.period)+qtr_adj):(max(resid$cal.period)+qtr_adj)
+colnames(test3)=c(hi)
+
+temp3=as.data.frame(zscore)
+rownames(temp3)=hi
+colnames(temp3)="CQ"
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by development quarters"}
+kbl(test2, booktabs = T,caption = "Sum of events by development quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp2,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=24, cellwidth = 24,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by accident quarters"}
+kbl(test, booktabs = T,caption = "Sum of events by accident quarters") %>%
+kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 8,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of Z score by calendar quarters"}
+kbl(test3, booktabs = T,caption = "Sum of events by calendar quarters") %>%
+  kable_styling(latex_options="scale_down",position = "center")
+
+pheatmap(temp3,cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightcyan","pink","coral3","coral4"), breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4),border_color = "NA",na_col = "white",cellheight=9, cellwidth = 16,legend_breaks = c(-4,-1.96,-1.5,0,1.5,1.96,4))
+```
+
+```{r,fig.align='center',fig.cap="Heatmaps of deviance residuals"}
+pheatmap(hm[,1:6],cluster_cols=F,cluster_rows=F,color = c("darkblue","cornflowerblue","lightblue","lightcyan","white","white","pink", "lightcoral","coral3","coral4"), breaks = c(-4,-3,-2,-1,-0.5,0,0.5,1,2,3,4),border_color = "NA",na_col = "white",cellheight=8, cellwidth = 24,legend_breaks = c(-4,-3,-2,-1,0,1,2,3,4))
+```
