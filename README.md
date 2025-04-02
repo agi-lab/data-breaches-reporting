@@ -6,11 +6,11 @@ This repository contains data, code, and documentation for analyzing data breach
 
 ### Documentation
 - **1.Online_Appendix.pdf** - Supplementary appendices referenced in the paper.
-- **3.tf_raw_to_R_Supp.pdf** - Documentation of the manual transformation process from raw data to usable CSV files, including assumptions made for special entries.
+- **3.tf_raw_to_R_Supp.docx** - Documentation of the manual transformation process from raw data to usable CSV files, including assumptions made for special entries.
 
 ### Data
-- **2.raw_data_[filename]** - Raw datasets in PDF or Excel format extracted from state Attorneys General websites.
-- **4.data_put_in_R_[filename]** - Edited data in CSV format used for R processing.
+- **2.raw_datasets_Supp** - Raw datasets in PDF or Excel format extracted from state Attorneys General websites.
+- **4.data_put_in_R_Supp** - Edited data in CSV format used for R processing.
 - **6.elig_breaches_Supp.csv** - Eligible observations used in the modeling stage, containing fields:
   - `Name.of.Company`
   - `Date.of.Breach` (start date)
